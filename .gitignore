@@ -1,0 +1,66 @@
+# ── Secrets & local config ───────────────────────────────
+.env
+.env.local
+*.key
+backend/data/.master.key
+backend/data/deks.json
+backend/data/document_access_log.jsonl
+backend/data/governance_audit_log.jsonl
+
+# QBFT validator private keys for the multi-node setup.
+# Regenerate locally with `besu --data-path=... public-key export-address`
+# or by running scripts/setup_besu.sh — never commit them.
+config/besu/keys/
+
+# ── Python ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+ENV/
+
+# ── Node / Hardhat ───────────────────────────────────────
+node_modules/
+artifacts/
+cache/
+typechain-types/
+coverage/
+
+# ── Solidity build artifacts ─────────────────────────────
+# We DO ship backend/contract_abi.json — it's a function of the contract
+# source, changes only when VLakeGovernance.sol changes, and lets fresh
+# clones run end-to-end without an extra rebuild step. The deploy script
+# overwrites it in place after a redeploy.
+contracts/VLakeGovernance.json
+
+# ── Application runtime data ─────────────────────────────
+backend/data/
+backend/uploads/
+data/
+uploads/
+*.duckdb
+*.duckdb.wal
+
+# ── Logs ─────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Editors & OS ─────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Docker ───────────────────────────────────────────────
+docker-compose.override.yml

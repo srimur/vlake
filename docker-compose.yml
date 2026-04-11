@@ -1,0 +1,156 @@
+# version removed - obsolete in Docker Compose v2+
+
+services:
+  besu-node1:
+    image: hyperledger/besu:24.1.0
+    container_name: vlake-besu-node1
+    command: >
+      --network=dev
+      --rpc-http-enabled
+      --rpc-http-api=ETH,NET,WEB3,ADMIN,DEBUG,TXPOOL
+      --rpc-http-host=0.0.0.0
+      --rpc-http-port=8545
+      --rpc-http-cors-origins="*"
+      --host-allowlist="*"
+      --min-gas-price=0
+      --miner-enabled
+      --miner-coinbase=0xf17f52151EbEF6C7334FAD080c5704D77216b732
+      --data-path=/tmp/besu-data
+    user: root
+    ports: ["8545:8545"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8545' 2>/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [vlake-net]
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: vlake-postgres
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-vlake}"
+      POSTGRES_USER: "${POSTGRES_USER:-vlake}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-vlake_secret}"
+    ports: ["5432:5432"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init_postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vlake"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [vlake-net]
+
+  minio:
+    image: minio/minio:latest
+    container_name: vlake-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ACCESS_KEY:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_SECRET_KEY:-minioadmin}"
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [minio-data:/data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [vlake-net]
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: vlake-zookeeper
+    environment: { ZOOKEEPER_CLIENT_PORT: "2181" }
+    networks: [vlake-net]
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: vlake-kafka
+    depends_on: [zookeeper]
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports: ["9093:9093"]
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [vlake-net]
+
+  mongodb:
+    image: mongo:7
+    container_name: vlake-mongodb
+    ports: ["27017:27017"]
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [vlake-net]
+
+  backend:
+    build: { context: ., dockerfile: docker/Dockerfile.backend }
+    container_name: vlake-backend
+    environment:
+      PYTHONIOENCODING: utf-8
+      # Blockchain
+      BESU_RPC: http://besu-node1:8545
+      CONTRACT_ADDRESS: "${CONTRACT_ADDRESS:-}"
+      # Encryption-at-rest (set VLAKE_MASTER_KEY in .env for production)
+      VLAKE_MASTER_KEY: "${VLAKE_MASTER_KEY:-}"
+      VLAKE_ENCRYPTED_BUCKET: "${VLAKE_ENCRYPTED_BUCKET:-vlake-encrypted}"
+      # PostgreSQL
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "${POSTGRES_DB:-vlake}"
+      POSTGRES_USER: "${POSTGRES_USER:-vlake}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-vlake_secret}"
+      # Kafka / MinIO / Mongo
+      KAFKA_BROKER: kafka:9092
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-minioadmin}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-minioadmin}"
+      MONGO_URI: mongodb://mongodb:27017
+      MONGO_DB: "${MONGO_DB:-vlake}"
+    ports: ["5000:5000"]
+    volumes:
+      - backend-data:/app/data
+      - backend-uploads:/app/uploads
+      # Bind-mount the contract ABI so a deploy on the host is picked up
+      # by the container after `docker compose up -d backend --force-recreate`
+      # (no image rebuild required).
+      - ./backend/contract_abi.json:/app/contract_abi.json:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      mongodb: { condition: service_healthy }
+      besu-node1: { condition: service_healthy }
+    networks: [vlake-net]
+
+  frontend:
+    build: { context: ., dockerfile: docker/Dockerfile.frontend }
+    container_name: vlake-frontend
+    ports: ["3000:80"]
+    depends_on: [backend]
+    networks: [vlake-net]
+
+volumes:
+  besu-data:
+  postgres-data:
+  minio-data:
+  mongo-data:
+  backend-data:
+  backend-uploads:
+
+networks:
+  vlake-net:
+    driver: bridge

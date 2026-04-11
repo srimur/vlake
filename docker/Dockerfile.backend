@@ -1,0 +1,26 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl gcc g++ && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Pre-install DuckDB extensions at build time (avoid runtime download)
+RUN python -c "import duckdb; c=duckdb.connect(); c.execute('INSTALL httpfs'); c.execute('INSTALL postgres_scanner'); c.execute('INSTALL mysql_scanner'); print('DuckDB extensions installed')"
+
+COPY backend/ .
+RUN mkdir -p /app/data /app/uploads
+
+# Set encoding for Windows compatibility
+ENV PYTHONIOENCODING=utf-8
+ENV PYTHONUNBUFFERED=1
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost:5000/api/health || exit 1
+
+EXPOSE 5000
+CMD ["python", "app.py"]

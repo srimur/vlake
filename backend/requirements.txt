@@ -1,0 +1,11 @@
+flask
+duckdb
+requests
+psycopg2-binary
+pymongo
+kafka-python-ng
+minio
+web3
+eth-account
+pypdf>=4.0.0
+cryptography>=42.0.0

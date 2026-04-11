@@ -1,0 +1,15 @@
+{
+  "name": "vlake-contracts",
+  "version": "1.0.0",
+  "description": "V-Lake smart contract compilation and testing",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:besu": "hardhat run scripts/deploy_hardhat.js --network besu",
+    "deploy:local": "hardhat run scripts/deploy_hardhat.js --network hardhat"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.19.0"
+  }
+}

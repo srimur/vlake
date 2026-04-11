@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V-LAKE — Verifiable Lakehouse Access & Knowledge Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=Source+Sans+3:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════
+   V-LAKE — High-contrast light theme for paper demo
+   Source Serif 4 (display) · Source Sans 3 (body) · JetBrains Mono (code)
+   ═══════════════════════════════════════════════════ */
+:root {
+  --bg: #F8F6F1;
+  --bg-warm: #F0EDE6;
+  --surface: #FFFFFF;
+  --surface-2: #EBE8E1;
+  --surface-3: #DDD9D0;
+  --border: #C8C3B8;
+  --border-strong: #A8A295;
+  --text: #1C1A16;
+  --text-2: #4A463D;
+  --text-muted: #7A756A;
+  --heading: #0F0E0C;
+  --teal: #0B6E5B;
+  --teal-light: #D6F0EA;
+  --teal-dark: #064A3D;
+  --teal-bg: #E8F5F0;
+  --blue: #1D4ED8;
+  --blue-light: #DBEAFE;
+  --green: #157F3C;
+  --green-light: #D4EDDA;
+  --red: #B91C1C;
+  --red-light: #F8D7DA;
+  --amber: #B45309;
+  --amber-light: #FFF3CD;
+  --purple: #6D28D9;
+  --purple-light: #E8DDFD;
+  --font-d: 'Source Serif 4', Georgia, serif;
+  --font-b: 'Source Sans 3', system-ui, sans-serif;
+  --font-m: 'JetBrains Mono', 'Menlo', monospace;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow: 0 1px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  --radius: 8px;
+  --radius-sm: 5px;
+  --radius-lg: 12px;
+}
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { font-size: 15px; -webkit-font-smoothing: antialiased; }
+body { font-family: var(--font-b); background: var(--bg); color: var(--text); min-height: 100vh; line-height: 1.6; font-weight: 400; }
+::selection { background: var(--teal); color: #fff; }
+::-webkit-scrollbar { width: 7px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+
+#root { min-height: 100vh; }
+.app { display: grid; grid-template-columns: 250px 1fr; min-height: 100vh; }
+
+/* ── SIDEBAR ── */
+.sb { background: #FFFFFF; border-right: 1.5px solid var(--border); position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; overflow-y: auto; }
+.sb-brand { padding: 22px 20px 16px; border-bottom: 1.5px solid var(--surface-3); }
+.sb-brand h1 { font-family: var(--font-d); font-size: 1.35rem; font-weight: 700; color: var(--heading); letter-spacing: -0.03em; }
+.sb-brand span { display: block; font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; }
+.sb-nav { flex: 1; padding: 12px 0; }
+.sb-group { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); padding: 16px 20px 5px; }
+.sb-item { display: flex; align-items: center; gap: 10px; padding: 9px 20px; font-size: 0.85rem; font-weight: 500; color: var(--text-2); cursor: pointer; transition: all 0.12s; border-left: 3px solid transparent; }
+.sb-item:hover { background: var(--bg-warm); color: var(--text); }
+.sb-item.on { background: var(--teal-bg); color: var(--teal-dark); border-left-color: var(--teal); font-weight: 600; }
+.sb-item .ico { font-size: 1rem; width: 22px; text-align: center; }
+
+.sb-id { padding: 14px 20px; border-top: 1.5px solid var(--surface-3); background: var(--bg-warm); }
+.sb-id label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 700; display: block; margin-bottom: 5px; }
+.sb-id select { width: 100%; padding: 7px 10px; font-family: var(--font-b); font-size: 0.78rem; font-weight: 500; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+.sb-id select:focus { border-color: var(--teal); outline: none; }
+.role-tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 8px; }
+.role-tag.steward { background: var(--purple-light); color: var(--purple); }
+.role-tag.custodian { background: var(--amber-light); color: var(--amber); }
+.role-tag.analyst { background: var(--blue-light); color: var(--blue); }
+.role-tag.subject { background: var(--green-light); color: var(--green); }
+.role-tag.none { background: var(--surface-2); color: var(--text-muted); }
+.sb-addr { font-size: 0.63rem; color: var(--text-muted); font-family: var(--font-m); margin-top: 4px; }
+
+/* ── MAIN ── */
+.main { padding: 30px 36px; min-height: 100vh; overflow-x: hidden; }
+.ph { margin-bottom: 24px; }
+.ph h2 { font-family: var(--font-d); font-size: 1.55rem; font-weight: 700; color: var(--heading); letter-spacing: -0.02em; line-height: 1.2; }
+.ph p { font-size: 0.88rem; color: var(--text-2); margin-top: 4px; }
+.ph-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+
+/* ── CARDS ── */
+.card { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
+.card-h { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding-bottom: 11px; border-bottom: 1.5px solid var(--surface-2); }
+.card-h h3 { font-family: var(--font-b); font-size: 0.82rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); }
+
+/* ── BUTTONS ── */
+.btn { padding: 8px 18px; border-radius: var(--radius-sm); font-family: var(--font-b); font-size: 0.82rem; font-weight: 600; border: 1.5px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.12s; }
+.btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: var(--teal); color: white; border-color: var(--teal); }
+.btn-primary:hover { background: var(--teal-dark); }
+.btn-sm { padding: 4px 12px; font-size: 0.75rem; }
+.btn-green { background: var(--green); color: white; border-color: var(--green); }
+.btn-red { background: var(--red); color: white; border-color: var(--red); }
+.btn-blue { background: var(--blue); color: white; border-color: var(--blue); }
+
+/* ── FORMS ── */
+.field { margin-bottom: 16px; }
+.field label { display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); margin-bottom: 6px; }
+.field input, .field select, .field textarea { width: 100%; padding: 9px 12px; font-family: var(--font-b); font-size: 0.88rem; font-weight: 500; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--teal); outline: none; box-shadow: 0 0 0 3px rgba(11,110,91,0.12); }
+.field textarea { min-height: 90px; resize: vertical; font-family: var(--font-m); font-size: 0.82rem; }
+.field-row { display: flex; gap: 14px; }
+.field .hint { font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; }
+
+/* ── BADGES ── */
+.badge { display: inline-block; padding: 2px 9px; border-radius: 11px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em; }
+.badge-green { background: var(--green-light); color: var(--green); }
+.badge-red { background: var(--red-light); color: var(--red); }
+.badge-amber { background: var(--amber-light); color: var(--amber); }
+.badge-blue { background: var(--blue-light); color: var(--blue); }
+.badge-purple { background: var(--purple-light); color: var(--purple); }
+.badge-gray { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
+.badge-teal { background: var(--teal-light); color: var(--teal-dark); }
+
+/* ── HASH ── */
+.hash { font-family: var(--font-m); font-size: 0.72rem; color: var(--text-2); background: var(--bg-warm); padding: 5px 10px; border-radius: var(--radius-sm); word-break: break-all; border: 1px solid var(--surface-3); }
+
+/* ── TABLE ── */
+.tbl { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.tbl th { text-align: left; padding: 9px 12px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); border-bottom: 2px solid var(--border); background: var(--surface); }
+.tbl td { padding: 9px 12px; border-bottom: 1px solid var(--surface-2); color: var(--text); }
+.tbl tr:hover td { background: var(--bg-warm); }
+
+/* ── GRIDS ── */
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+/* ── MODAL ── */
+.modal-bg { position: fixed; inset: 0; background: rgba(15,14,12,0.45); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+.modal { background: var(--surface); border-radius: var(--radius-lg); padding: 28px; width: 92%; max-width: 520px; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow-md); border: 1.5px solid var(--border); }
+.modal h3 { font-family: var(--font-d); font-size: 1.15rem; font-weight: 700; margin-bottom: 18px; color: var(--heading); }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--surface-2); }
+
+/* ── WQC BAR ── */
+.wqc-bar { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+.wqc-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+
+/* ── TABS ── */
+.tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 18px; }
+.tab { padding: 10px 18px; font-family: var(--font-b); font-size: 0.84rem; font-weight: 600; color: var(--text-muted); cursor: pointer; border: none; background: none; border-bottom: 2.5px solid transparent; margin-bottom: -2px; transition: all 0.12s; }
+.tab:hover { color: var(--text); }
+.tab.on { color: var(--teal); border-bottom-color: var(--teal); }
+
+/* ── COLUMN CHIPS ── */
+.col-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 11px; margin: 3px; border-radius: 5px; font-size: 0.74rem; font-family: var(--font-m); cursor: pointer; border: 1.5px solid var(--border); background: var(--surface); color: var(--text-2); transition: all 0.1s; user-select: none; font-weight: 500; }
+.col-chip:hover { border-color: var(--teal); }
+.col-chip.on { border-color: var(--teal); background: var(--teal-light); color: var(--teal-dark); font-weight: 600; }
+.col-chip .type { font-size: 0.6rem; opacity: 0.5; font-weight: 400; }
+
+/* ── ACCESS MATRIX CELLS ── */
+.acl { width: 22px; height: 22px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; font-weight: 700; margin: 0 auto; }
+.acl.yes { background: var(--teal); color: white; border: 1.5px solid var(--teal-dark); }
+.acl.all { background: var(--teal-light); color: var(--teal-dark); border: 1.5px solid var(--teal); }
+.acl.no { background: var(--surface-2); color: var(--border-strong); border: 1.5px solid var(--border); }
+
+/* ── SQL EDITOR ── */
+.sql-box { width: 100%; padding: 14px; font-family: var(--font-m); font-size: 0.84rem; font-weight: 500; background: #1A202C; color: #E2E8F0; border: 2px solid #2D3748; border-radius: var(--radius); min-height: 100px; resize: vertical; line-height: 1.5; }
+.sql-box:focus { border-color: var(--teal); outline: none; }
+.sql-box::placeholder { color: #718096; }
+
+/* ── UPLOAD ── */
+.upload-zone { border: 2.5px dashed var(--border); border-radius: var(--radius); padding: 32px; text-align: center; cursor: pointer; transition: all 0.15s; }
+.upload-zone:hover, .upload-zone.drag { border-color: var(--teal); background: var(--teal-bg); }
+
+/* ── TOAST ── */
+.toast-area { position: fixed; top: 18px; right: 18px; z-index: 10000; display: flex; flex-direction: column; gap: 8px; }
+.toast { padding: 11px 18px; border-radius: var(--radius-sm); font-size: 0.84rem; font-weight: 600; box-shadow: var(--shadow-md); animation: tIn 0.2s; max-width: 380px; }
+.toast.success { background: var(--green); color: white; }
+.toast.error { background: var(--red); color: white; }
+.toast.info { background: var(--blue); color: white; }
+@keyframes tIn { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+.empty { text-align: center; padding: 36px 24px; color: var(--text-muted); }
+.empty-ico { font-size: 2.2rem; margin-bottom: 10px; opacity: 0.35; }
+
+/* ── CONSENT CHAIN ── */
+.consent { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-left: 4px solid var(--teal); margin-bottom: 5px; background: var(--surface); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.consent .act { font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.consent .act.link { color: var(--blue); } .consent .act.delegate { color: var(--green); } .consent .act.revoke { color: var(--red); }
+
+/* ── STAT ── */
+.stat-row { display: flex; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+.stat { flex: 1; min-width: 140px; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 14px 18px; }
+.stat-val { font-family: var(--font-d); font-size: 1.6rem; font-weight: 700; color: var(--heading); line-height: 1; }
+.stat-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-top: 4px; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .sb { display: none; }
+  .main { padding: 16px; }
+  .g2, .g3 { grid-template-columns: 1fr; }
+  .field-row { flex-direction: column; }
+  .stat-row { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script>
+window.onerror = function(msg, url, line, col, err) {
+  document.getElementById("root").innerHTML = '<div style="padding:40px;font-family:monospace;color:#B91C1C;background:#FEF2F2;border:2px solid #B91C1C;border-radius:8px;margin:20px;white-space:pre-wrap"><h2 style="margin-bottom:10px">JavaScript Error</h2>' + msg + '\n\nLine: ' + line + ', Col: ' + col + '\n\n' + (err ? err.stack : '') + '</div>';
+};
+</script>
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+const API = window.location.port==="3000" ? "/api" : "http://localhost:5000/api";
+async function api(path, opts = {}) {
+  try {
+    const cfg = { method: opts.method || "GET", headers: {} };
+    if (opts.body && !(opts.body instanceof FormData)) {
+      cfg.headers["Content-Type"] = "application/json";
+      cfg.body = JSON.stringify(opts.body);
+    } else if (opts.body) { cfg.body = opts.body; }
+    const res = await fetch(`${API}${path}`, cfg);
+    return await res.json();
+  } catch (e) { return { error: e.message }; }
+}
+
+const USERS = [
+  { addr: "0x1111111111111111111111111111111111111111", label: "Pharma Co.",     desc: "Trial Sponsor",      role: "DATA_STEWARD" },
+  { addr: "0x2222222222222222222222222222222222222222", label: "City Hospital",  desc: "Site PI",            role: "DATA_STEWARD" },
+  { addr: "0x3333333333333333333333333333333333333333", label: "Ethics Board",   desc: "IRB",                role: "DATA_STEWARD" },
+  { addr: "0x4444444444444444444444444444444444444444", label: "Data Manager",   desc: "Clinical Data Mgr",  role: "NONE" },
+  { addr: "0x5555555555555555555555555555555555555555", label: "Biostatistician",desc: "Analyst",            role: "NONE" },
+  { addr: "0x6666666666666666666666666666666666666666", label: "Participant",    desc: "John Doe (P0001)",   role: "NONE" },
+  { addr: "0x7777777777777777777777777777777777777777", label: "Investigator",   desc: "Dr. Williams",       role: "NONE" },
+];
+
+function navFor(role) {
+  if (role === "DATA_STEWARD") return [
+    { id: "demo", label: "Demo Walkthrough", ico: "▶", g: "Demo" },
+    
+    { id: "datasets",   label: "Datasets",        ico: "▦", g: "Govern" },
+    { id: "proposals",  label: "Proposals (WQC)",  ico: "☐", g: "Govern" },
+    { id: "access",     label: "Access Matrix",    ico: "⊞", g: "Govern" },
+    { id: "compliance", label: "Compliance",       ico: "◉", g: "Govern" },
+    { id: "ssi",        label: "Patient Registry", ico: "♥", g: "SSI" },
+    { id: "query",      label: "Query Engine",     ico: "▶", g: "Data" },
+    { id: "audit",      label: "Audit Trail",      ico: "⊘", g: "Verify" },
+    { id: "merkle",     label: "Merkle Integrity", ico: "△", g: "Verify" },
+  ];
+  if (role === "DATA_CUSTODIAN") return [
+    
+    
+    { id: "ingest",    label: "Ingest Data",       ico: "⬆", g: "Data" },
+    { id: "datasets",  label: "My Datasets",       ico: "▦", g: "Data" },
+    { id: "proposals", label: "Proposals",          ico: "☐", g: "Govern" },
+    { id: "query",     label: "Query Engine",       ico: "▶", g: "Data" },
+    { id: "merkle",    label: "Merkle Integrity",   ico: "△", g: "Verify" },
+  ];
+  if (role === "ANALYST") return [
+    
+    
+    { id: "query",    label: "Query Engine",       ico: "▶", g: "Data" },
+    { id: "datasets", label: "Available Datasets", ico: "▦", g: "Data" },
+    { id: "access",   label: "My Access",          ico: "⊞", g: "Data" },
+  ];
+  if (role === "SUBJECT") return [
+    
+    
+    { id: "ssi",   label: "My Consent & Data",  ico: "♥", g: "SSI" },
+    { id: "query", label: "My Records",          ico: "▶", g: "Data" },
+  ];
+  return [
+    
+    { id: "datasets",  label: "Datasets",  ico: "▦", g: "Info" },
+    { id: "proposals", label: "Proposals",  ico: "☐", g: "Info" },
+  ];
+}
+
+// ════════════════════════════════════════════════════
+// APP SHELL
+// ════════════════════════════════════════════════════
+function App() {
+  const [user, setUser] = useState(USERS[0].addr);
+  const [role, setRole] = useState(USERS[0].role);
+  const [page, setPage] = useState("datasets");
+  const [ds, setDs] = useState([]);
+  const [prps, setPrps] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [grants, setGrants] = useState([]);
+  const [toasts, setToasts] = useState([]);
+
+  const toast = (msg, type = "info") => {
+    const id = Date.now();
+    setToasts(t => [...t, { id, msg, type }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4000);
+  };
+
+  const refresh = useCallback(async () => {
+    const [a, b, c, d] = await Promise.all([
+      api("/datasets"), api("/proposals"), api("/audit/queries?limit=50"), api("/grants")
+    ]);
+    setDs(a.datasets || []);
+    setPrps(b.proposals || []);
+    setLogs(c.logs || []);
+    setGrants(d.grants || []);
+  }, []);
+
+  useEffect(() => { refresh(); const iv = setInterval(refresh, 6000); return () => clearInterval(iv); }, [refresh]);
+
+  const switchUser = async (addr) => {
+    setUser(addr);
+    const r = await api(`/auth/role?address=${addr}`);
+    const rl = r.role || USERS.find(u => u.addr === addr)?.role || "NONE";
+    setRole(rl);
+    const nv = navFor(rl);
+    if (nv.length && !nv.find(n => n.id === page)) setPage(nv[0].id);
+  };
+
+  const nav = navFor(role);
+  const rc = role === "DATA_STEWARD" ? "steward" : role === "DATA_CUSTODIAN" ? "custodian" : role === "ANALYST" ? "analyst" : role === "SUBJECT" ? "subject" : "none";
+
+  const P = { datasets: ds, proposals: prps, queryLogs: logs, grants, user, role, toast, refresh, setPage };
+  const groups = {};
+  nav.forEach(n => { (groups[n.g] = groups[n.g] || []).push(n); });
+
+  return (
+    <div className="app">
+      <div className="toast-area">{toasts.map(t => <div key={t.id} className={`toast ${t.type}`}>{t.msg}</div>)}</div>
+      <aside className="sb">
+        <div className="sb-brand"><h1>V-Lake</h1><span>Multi-Site Clinical Trial</span></div>
+        <nav className="sb-nav">
+          {Object.entries(groups).map(([g, items]) => (
+            <div key={g}>
+              <div className="sb-group">{g}</div>
+              {items.map(n => (
+                <div key={n.id} className={`sb-item ${page===n.id?'on':''}`} onClick={() => setPage(n.id)}>
+                  <span className="ico">{n.ico}</span>{n.label}
+                </div>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="sb-id">
+          <label>Active Identity</label>
+          <select value={user} onChange={e => switchUser(e.target.value)}>
+            {USERS.map(u => <option key={u.addr} value={u.addr}>{u.label} — {u.desc}</option>)}
+          </select>
+          <div className={`role-tag ${rc}`}>{role.replace("DATA_","")}</div>
+          <div className="sb-addr">{user.slice(0,20)}…</div>
+        </div>
+      </aside>
+      <main className="main" key={page}>
+        {page === "demo"       && <DemoPage {...P} />}
+        {page === "datasets"   && <DatasetsPage {...P} />}
+        {page === "ingest"     && <IngestPage {...P} />}
+        {page === "query"      && <QueryPage {...P} />}
+        {page === "proposals"  && <ProposalsPage {...P} />}
+        {page === "access"     && <AccessPage {...P} />}
+        {page === "compliance" && <CompliancePage {...P} />}
+        {page === "ssi"        && <SSIPage {...P} />}
+        {page === "audit"      && <AuditPage {...P} />}
+        {page === "merkle"     && <MerklePage {...P} />}
+      </main>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════
+// DATASETS — Steward creates schema, everyone views
+// ════════════════════════════════════════════════════
+function DatasetsPage({ datasets, user, role, toast, refresh, setPage }) {
+  const [show, setShow] = useState(false);
+  const [f, setF] = useState({ name: '', description: '', sourceType: 'LOCAL_FILE', isConfidential: true });
+  const isSteward = role === "DATA_STEWARD";
+  const SRCS = ["LOCAL_FILE","S3_MINIO","POSTGRESQL","MYSQL","TRINO","DELTA_LAKE","ICEBERG","HDFS","KAFKA","MONGODB"];
+
+  const create = async () => {
+    const r = await api("/datasets", { method: "POST", body: { caller: user, ...f } });
+    if (r.success) { toast(`Dataset "${f.name}" created (ID: ${r.datasetId})`, "success"); setShow(false); refresh(); }
+    else toast(r.error, "error");
+  };
+
+  return (
+    <div>
+      <div className="ph ph-row">
+        <div>
+          <h2>Datasets</h2>
+          <p>{isSteward ? "Create schemas and manage governance. Only custodians ingest data." : role === "DATA_CUSTODIAN" ? "Datasets you are custodian of." : role === "ANALYST" ? "Datasets with active access grants for you." : "Registered datasets."}</p>
+        </div>
+        {isSteward && <button className="btn btn-primary" onClick={() => setShow(true)}>+ Create Dataset</button>}
+      </div>
+
+      {datasets.length === 0 ? (
+        <div className="card"><div className="empty"><div className="empty-ico">▦</div><p>No datasets yet.{isSteward ? " Create one to begin." : ""}</p></div></div>
+      ) : datasets.map(d => (
+        <div key={d.id} className="card">
+          <div className="card-h">
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <h3 style={{textTransform:'none',letterSpacing:0,fontSize:'0.95rem',color:'var(--heading)'}}>{d.name}</h3>
+              {d.isConfidential && <span className="badge badge-red">Confidential</span>}
+              <span className="badge badge-teal">{(d.sourceType||'').replace(/_/g,' ')}</span>
+            </div>
+            <span style={{fontSize:'0.78rem',color:'var(--text-2)',fontWeight:600}}>{d.rowCount||0} rows</span>
+          </div>
+          {d.description && <p style={{fontSize:'0.84rem',color:'var(--text-2)',marginBottom:12}}>{d.description}</p>}
+          {d.schema && d.schema.length > 0 && (
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:'0.68rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--text-muted)',marginBottom:5}}>Schema — {d.schema.length} columns</div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                {d.schema.map(c => <span key={c.name} className="col-chip">{c.name} <span className="type">{c.type}</span></span>)}
+              </div>
+            </div>
+          )}
+          {d.merkleRoot && (
+            <div style={{marginBottom:10}}>
+              <div style={{fontSize:'0.68rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--text-muted)',marginBottom:3}}>Merkle Root (C1)</div>
+              <span className="hash">{d.merkleRoot}</span>
+            </div>
+          )}
+          <div style={{display:'flex',gap:24,fontSize:'0.78rem',color:'var(--text-2)',marginTop:10,flexWrap:'wrap'}}>
+            <span><strong>Custodians:</strong> {(d.custodians||[]).length > 0 ? d.custodians.map(c => c.slice(0,10)+'…').join(', ') : 'None'}</span>
+            <span><strong>Analysts:</strong> {(d.analysts||[]).length > 0 ? d.analysts.map(a => a.slice(0,10)+'…').join(', ') : 'None'}</span>
+            <span><strong>Policies:</strong> {(d.policies||[]).map(p => p.toUpperCase()).join(', ') || 'None'}</span>
+          </div>
+        </div>
+      ))}
+
+      {show && (
+        <div className="modal-bg" onClick={() => setShow(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>Create Dataset Schema</h3>
+            <div className="field"><label>Dataset Name</label><input value={f.name} onChange={e => setF({...f, name: e.target.value})} placeholder="patient_records" /></div>
+            <div className="field"><label>Description</label><input value={f.description} onChange={e => setF({...f, description: e.target.value})} placeholder="Electronic health records — PHI" /></div>
+            <div className="field-row">
+              <div className="field" style={{flex:1}}><label>Source Type (C4)</label>
+                <select value={f.sourceType} onChange={e => setF({...f, sourceType: e.target.value})}>
+                  {SRCS.map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+                </select>
+              </div>
+              <div className="field" style={{flex:1}}><label>Confidential</label>
+                <select value={String(f.isConfidential)} onChange={e => setF({...f, isConfidential: e.target.value==='true'})}>
+                  <option value="true">Yes — view only</option>
+                  <option value="false">No — view + download</option>
+                </select>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setShow(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={create} disabled={!f.name}>Create</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════
+// INGEST — Custodian only — Structured + Unstructured
+// ════════════════════════════════════════════════════
+function IngestPage({ datasets, user, role, toast, refresh }) {
+  const [dsId, setDsId] = useState('');
+  const [tab, setTab] = useState('file');
+  const [drag, setDrag] = useState(false);
+  const [json_, setJson] = useState('');
+  const [patientId, setPatientId] = useState('');
+  const [docTags, setDocTags] = useState('');
+  const [docResult, setDocResult] = useState(null);
+
+  if (role !== "DATA_CUSTODIAN") return (
+    <div>
+      <div className="ph"><h2>Data Ingestion</h2><p>Separation of duties: only custodians can ingest data into datasets.</p></div>
+      <div className="card"><div className="empty"><div className="empty-ico">⊘</div><p>You are a <strong>{role.replace("DATA_","")}</strong>. Switch to a custodian identity to ingest data.</p></div></div>
+    </div>
+  );
+
+  const STRUCTURED_EXT = ['.csv', '.json', '.parquet'];
+  const DOC_EXT = ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.txt', '.docx', '.xlsx'];
+
+  const handleFile = async (file) => {
+    if (!dsId) { toast("Select a target dataset", "error"); return; }
+    const ext = file.name.split('.').pop().toLowerCase();
+    const isDoc = ['pdf','png','jpg','jpeg','tiff','bmp','txt','docx','xlsx'].includes(ext);
+
+    if (isDoc) {
+      // Unstructured: use document endpoint
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("caller", user);
+      fd.append("datasetId", dsId);
+      fd.append("patientId", patientId);
+      fd.append("tags", docTags);
+      const r = await api("/ingest/document", { method: "POST", body: fd });
+      if (r.success) {
+        setDocResult(r);
+        toast(`Document "${r.filename}" ingested — ${r.extractedTextLength} chars extracted`, "success");
+        refresh();
+      } else toast(r.error, "error");
+    } else {
+      // Structured: use existing upload endpoint
+      const fd = new FormData(); fd.append("file", file); fd.append("caller", user); fd.append("datasetId", dsId);
+      const r = await api("/ingest/upload", { method: "POST", body: fd });
+      if (r.success) { toast(`${r.rowCount} rows ingested — Merkle root: ${(r.merkleRoot||'').slice(0,28)}…`, "success"); refresh(); }
+      else toast(r.error, "error");
+    }
+  };
+
+  const handleJson = async () => {
+    if (!dsId) { toast("Select a target dataset", "error"); return; }
+    try {
+      const records = JSON.parse(json_);
+      const r = await api("/ingest/stream", { method: "POST", body: { caller: user, datasetId: dsId, records } });
+      if (r.success) { toast(`${r.rowCount} rows ingested`, "success"); refresh(); }
+      else toast(r.error, "error");
+    } catch { toast("Invalid JSON — expected array of objects", "error"); }
+  };
+
+  return (
+    <div>
+      <div className="ph"><h2>Ingest Data</h2><p>Load structured data (CSV, Parquet, JSON) or unstructured documents (PDF, images, DOCX) into datasets. Merkle root computed automatically (C1).</p></div>
+      <div className="field"><label>Target Dataset</label>
+        <select value={dsId} onChange={e => setDsId(e.target.value)}><option value="">— Select —</option>
+          {datasets.map(d => <option key={d.id} value={d.id}>{d.name} (ID: {d.id})</option>)}
+        </select>
+      </div>
+      <div className="tabs">
+        {[{id:'file',l:'Structured Data'},{id:'doc',l:'Documents (PDF/Image)'},{id:'json',l:'JSON Stream'},{id:'pg',l:'PostgreSQL'},{id:'kafka',l:'Kafka'}].map(t =>
+          <button key={t.id} className={`tab ${tab===t.id?'on':''}`} onClick={() => setTab(t.id)}>{t.l}</button>
+        )}
+      </div>
+
+      {tab === 'file' && (
+        <div className={`upload-zone ${drag?'drag':''}`}
+          onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)}
+          onDrop={e=>{e.preventDefault();setDrag(false);handleFile(e.dataTransfer.files[0])}}
+          onClick={()=>{const i=document.createElement('input');i.type='file';i.accept='.csv,.json,.parquet';i.onchange=e=>handleFile(e.target.files[0]);i.click()}}>
+          <div style={{fontSize:'1.8rem',marginBottom:10,color:'var(--teal)'}}>⬆</div>
+          <div style={{fontWeight:600,fontSize:'0.95rem'}}>Drop CSV, Parquet, or JSON file</div>
+          <div style={{fontSize:'0.78rem',color:'var(--text-muted)',marginTop:4}}>Tabular data — rows become Merkle leaves</div>
+        </div>
+      )}
+
+      {tab === 'doc' && (
+        <div>
+          <div style={{background:'var(--teal-bg)',border:'1.5px solid var(--teal)',borderRadius:'var(--radius)',padding:'14px 18px',marginBottom:16}}>
+            <div style={{fontSize:'0.82rem',fontWeight:600,color:'var(--teal-dark)',marginBottom:4}}>Unstructured Data Support</div>
+            <div style={{fontSize:'0.78rem',color:'var(--text-2)'}}>
+              Upload PDFs, images, Word docs, or text files. V-Lake extracts text/metadata and stores it as a queryable row in DuckDB.
+              The extracted content is Merkle-committed, access-controlled via WQC grants, and searchable via SQL (<code style={{fontFamily:'var(--font-m)',background:'rgba(0,0,0,0.05)',padding:'1px 4px',borderRadius:3,fontSize:'0.72rem'}}>WHERE extracted_text LIKE '%diagnosis%'</code>).
+            </div>
+          </div>
+          <div className="field-row">
+            <div className="field" style={{flex:1}}>
+              <label>Patient ID <span style={{fontWeight:400,textTransform:'none',letterSpacing:0}}>(optional — links doc to patient for SSI filtering)</span></label>
+              <input value={patientId} onChange={e=>setPatientId(e.target.value)} placeholder="P0001" style={{fontFamily:'var(--font-m)',fontSize:'0.82rem'}} />
+            </div>
+            <div className="field" style={{flex:1}}>
+              <label>Tags <span style={{fontWeight:400,textTransform:'none',letterSpacing:0}}>(optional — comma separated)</span></label>
+              <input value={docTags} onChange={e=>setDocTags(e.target.value)} placeholder="lab-report, radiology, discharge-summary" />
+            </div>
+          </div>
+          <div className={`upload-zone ${drag?'drag':''}`}
+            onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)}
+            onDrop={e=>{e.preventDefault();setDrag(false);handleFile(e.dataTransfer.files[0])}}
+            onClick={()=>{const i=document.createElement('input');i.type='file';i.accept=DOC_EXT.join(',');i.onchange=e=>handleFile(e.target.files[0]);i.click()}}>
+            <div style={{fontSize:'1.8rem',marginBottom:10,color:'var(--teal)'}}>📄</div>
+            <div style={{fontWeight:600,fontSize:'0.95rem'}}>Drop PDF, Image, DOCX, or TXT file</div>
+            <div style={{fontSize:'0.78rem',color:'var(--text-muted)',marginTop:4}}>Text extracted → stored as queryable row → Merkle committed</div>
+            <div style={{fontSize:'0.68rem',color:'var(--text-muted)',marginTop:8}}>Supported: PDF, PNG, JPG, TIFF, BMP, TXT, DOCX, XLSX</div>
+          </div>
+
+          {docResult && (
+            <div className="card" style={{marginTop:16}}>
+              <div className="card-h"><h3>Document Ingested</h3><span className="badge badge-green">Success</span></div>
+              <div className="g2">
+                <div><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',marginBottom:3}}>Document ID</div><span className="hash">{docResult.docId}</span></div>
+                <div><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',marginBottom:3}}>File Hash (SHA-256)</div><span className="hash">{docResult.fileHash}</span></div>
+              </div>
+              <div style={{display:'flex',gap:24,marginTop:12,fontSize:'0.82rem',color:'var(--text-2)',flexWrap:'wrap'}}>
+                <span><strong>Filename:</strong> {docResult.filename}</span>
+                <span><strong>Type:</strong> {docResult.mimeType}</span>
+                <span><strong>Size:</strong> {(docResult.fileSize/1024).toFixed(1)} KB</span>
+                {docResult.pageCount > 0 && <span><strong>Pages:</strong> {docResult.pageCount}</span>}
+                <span><strong>Text extracted:</strong> {docResult.extractedTextLength.toLocaleString()} chars</span>
+              </div>
+              <div style={{marginTop:10}}>
+                <div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',marginBottom:3}}>Merkle Root (updated)</div>
+                <span className="hash">{docResult.merkleRoot}</span>
+              </div>
+              <div style={{marginTop:10,fontSize:'0.78rem',color:'var(--text-muted)'}}>
+                This document is now queryable via SQL. Try: <code style={{fontFamily:'var(--font-m)',background:'var(--bg-warm)',padding:'2px 6px',borderRadius:3}}>SELECT doc_id, filename, extracted_text FROM {'{table}'} WHERE extracted_text LIKE '%keyword%'</code>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'json' && (
+        <div>
+          <div className="field"><label>JSON Records</label><textarea value={json_} onChange={e=>setJson(e.target.value)} placeholder='[{"patient_id":"P001","name":"John Doe","age":45,"diagnosis":"Hypertension"}]' /></div>
+          <button className="btn btn-primary" onClick={handleJson} disabled={!dsId}>Ingest Records</button>
+        </div>
+      )}
+      {tab === 'pg' && <div className="card"><p style={{color:'var(--text-2)'}}>PostgreSQL source is configured via docker-compose. Use API: <code style={{fontFamily:'var(--font-m)',background:'var(--bg-warm)',padding:'2px 6px',borderRadius:3}}>POST /api/ingest/postgres</code></p></div>}
+      {tab === 'kafka' && <div className="card"><p style={{color:'var(--text-2)'}}>Kafka broker configured in docker-compose. Use API: <code style={{fontFamily:'var(--font-m)',background:'var(--bg-warm)',padding:'2px 6px',borderRadius:3}}>POST /api/ingest/kafka</code></p></div>}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════
+// QUERY ENGINE — with visible predicate injection
+// ════════════════════════════════════════════════════
+function QueryPage({ datasets, user, role, toast }) {
+  const [dsId, setDsId] = useState('');
+  const [sql, setSql] = useState('SELECT * FROM {table}');
+  const [result, setResult] = useState(null);
+
+  const run = async () => {
+    if (!dsId) { toast("Select a dataset", "error"); return; }
+    const r = await api("/query", { method: "POST", body: { querier: user, datasetId: dsId, query: sql } });
+    if (r.error) { toast(r.error, "error"); setResult(null); }
+    else setResult(r);
+  };
+
+  return (
+    <div>
+      <div className="ph"><h2>{role==="SUBJECT"?"My Records":"Query Engine"}</h2>
+        <p>{role==="SUBJECT"?"Your data with auto-injected row filter from SSI linkage.":"Execute SQL with predicate injection from your access grant. Column and row restrictions enforced automatically."}</p>
+      </div>
+      <div className="g2" style={{marginBottom:16}}>
+        <div className="field"><label>Dataset</label>
+          <select value={dsId} onChange={e=>setDsId(e.target.value)}><option value="">— Select —</option>
+            {datasets.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </div>
+        <div style={{display:'flex',alignItems:'flex-end',paddingBottom:16}}>
+          <button className="btn btn-primary" onClick={run} disabled={!dsId}>Execute Query</button>
+        </div>
+      </div>
+      <div className="field"><label>SQL <span style={{fontWeight:400,textTransform:'none',letterSpacing:0,color:'var(--text-muted)'}}>— use {'{table}'} as placeholder</span></label>
+        <textarea className="sql-box" value={sql} onChange={e=>setSql(e.target.value)} />
+      </div>
+
+      {result && (
+        <div className="card" style={{marginTop:16}}>
+          <div className="card-h">
+            <h3>Results — {result.rows?.length || 0} rows</h3>
+            <div style={{display:'flex',gap:8}}>
+              <span className="badge badge-teal">{result.accessLevel || 'VIEW_ONLY'}</span>
+              {result.compliancePassed !== undefined && <span className={`badge ${result.compliancePassed?'badge-green':'badge-red'}`}>{result.compliancePassed?'Compliant':'Failed'}</span>}
+            </div>
+          </div>
+
+          {/* Show predicate injection — this is key for the paper */}
+          {result.injectedQuery && result.injectedQuery !== sql && (
+            <div style={{marginBottom:14,background:'var(--bg-warm)',borderRadius:'var(--radius-sm)',padding:'12px 14px',border:'1.5px solid var(--surface-3)'}}>
+              <div style={{fontSize:'0.68rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--teal-dark)',marginBottom:4}}>Predicate Injection Applied</div>
+              <div style={{fontFamily:'var(--font-m)',fontSize:'0.78rem',color:'var(--text)',lineHeight:1.5}}>{result.injectedQuery}</div>
+            </div>
+          )}
+
+          {/* Attestation hash */}
+          {result.attestation && (
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:'0.68rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--text-muted)',marginBottom:3}}>Query Attestation</div>
+              <span className="hash">{result.attestation}</span>
+            </div>
+          )}
+
+          {/* Data table */}
+          {result.columns && result.rows && result.rows.length > 0 && (
+            <div style={{overflowX:'auto',marginTop:10}}>
+              <table className="tbl">
+                <thead><tr>{result.columns.map(c=><th key={c}>{c}</th>)}</tr></thead>
+                <tbody>{result.rows.slice(0,100).map((r,i)=><tr key={i}>{r.map((v,j)=><td key={j}>{v === null ? '—' : String(v)}</td>)}</tr>)}</tbody>
+              </table>
+              {result.rows.length > 100 && <div style={{textAlign:'center',padding:10,color:'var(--text-muted)',fontSize:'0.78rem'}}>Showing 100 of {result.rows.length} rows</div>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════
+// PROPOSALS — WQC governance
+// ════════════════════════════════════════════════════
+function ProposalsPage({ proposals, datasets, user, role, toast, refresh }) {
+  const [show, setShow] = useState(false);
+  const [f, setF] = useState({ type: 'ASSIGN_CUSTODIAN', datasetId: '', target: '', metadata: '{}' });
+  const canVote = role === "DATA_STEWARD" || role === "DATA_CUSTODIAN";
+  const TYPES = ["ASSIGN_CUSTODIAN","ONBOARD_ANALYST","ACCESS_GRANT","REVOKE_CUSTODIAN","REVOKE_ANALYST","ATTACH_POLICY","TOGGLE_CONFIDENTIAL"];
+
+  const create = async () => {
+    const r = await api("/proposals", { method: "POST", body: { ...f, proposer: user } });
+    if (r.success) { toast(`Proposal #${r.proposalId} created`, "success"); setShow(false); refresh(); }
+    else toast(r.error, "error");
+  };
+  const vote = async (pid, approve) => {
+    const r = await api(`/proposals/${pid}/vote`, { method: "POST", body: { voter: user, approve } });
+    if (r.success) toast(`Vote on #${pid} recorded`, "success");
+    else toast(r.error, "error");
+    refresh();
+  };
+
+  return (
+    <div>
+      <div className="ph ph-row">
+        <div><h2>Governance Proposals</h2><p>Weighted Quorum Consensus (C2) — role-weighted multi-party voting with formal safety guarantees.</p></div>
+        {(role === "DATA_STEWARD" || role === "DATA_CUSTODIAN") && <button className="btn btn-primary" onClick={() => setShow(true)}>+ New Proposal</button>}
+      </div>
+
+      {proposals.length === 0 ? (
+        <div className="card"><div className="empty"><div className="empty-ico">☐</div><p>No proposals yet.</p></div></div>
+      ) : proposals.slice().reverse().map(p => {
+        const w = p.wqc || {};
+        const sc = p.status === 'EXECUTED' ? 'green' : p.status === 'PENDING' ? 'amber' : p.status === 'REJECTED' ? 'red' : 'gray';
+        const pct = w.totalWeight > 0 ? Math.round((w.yesWeight/w.totalWeight)*100) : 0;
+        const rpct = w.totalWeight > 0 ? Math.round((w.requiredWeight/w.totalWeight)*100) : 0;
+        return (
+          <div key={p.id} className="card">
+            <div className="card-h">
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <h3 style={{textTransform:'none',letterSpacing:0,fontSize:'0.92rem',color:'var(--heading)'}}>#{p.id} — {p.type.replace(/_/g,' ')}</h3>
+                <span className={`badge badge-${sc}`}>{p.status}</span>
+              </div>
+              <span style={{fontSize:'0.75rem',color:'var(--text-muted)',fontWeight:600}}>Dataset: {p.datasetId || '—'}</span>
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.75rem',color:'var(--text-2)',marginBottom:3,fontWeight:500}}>
+                <span>Weight: {w.yesWeight||0} / {w.totalWeight||0} (need {w.requiredWeight||0})</span>
+                <span>{w.quorumType||'standard'} quorum</span>
+              </div>
+              <div className="wqc-bar"><div className="wqc-fill" style={{width:`${pct}%`,background:pct>=rpct?'var(--green)':'var(--amber)'}}></div></div>
+            </div>
+            <div className="g3" style={{fontSize:'0.8rem',marginBottom:12}}>
+              <div><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Steward Votes</div>
+                <div style={{marginTop:3}}><span style={{color:'var(--green)',fontWeight:700}}>✓{w.stewardYes||0}</span> / <span style={{color:'var(--red)',fontWeight:700}}>✕{w.stewardNo||0}</span> <span style={{color:'var(--text-muted)'}}>of {w.stewardTotal||0}</span></div></div>
+              <div><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Custodian Votes</div>
+                <div style={{marginTop:3}}><span style={{color:'var(--green)',fontWeight:700}}>✓{w.custodianYes||0}</span> / <span style={{color:'var(--red)',fontWeight:700}}>✕{w.custodianNo||0}</span> <span style={{color:'var(--text-muted)'}}>of {w.custodianTotal||0}</span></div></div>
+              <div><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Target</div>
+                <div style={{marginTop:3,fontFamily:'var(--font-m)',fontSize:'0.75rem'}}>{p.target?p.target.slice(0,16)+'…':'—'}</div></div>
+            </div>
+            {w.quorumCertificate && <div style={{marginBottom:10}}><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:3}}>Quorum Certificate</div><span className="hash">{w.quorumCertificate}</span></div>}
+            {p.metadata && p.metadata !== '{}' && <div style={{marginBottom:10}}><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:3}}>Metadata</div><span className="hash">{p.metadata}</span></div>}
+            {p.status === "PENDING" && canVote && (
+              <div style={{display:'flex',gap:8,marginTop:6}}>
+                <button className="btn btn-sm btn-green" onClick={()=>vote(p.id,true)}>✓ Approve</button>
+                <button className="btn btn-sm btn-red" onClick={()=>vote(p.id,false)}>✕ Reject</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {show && (
+        <div className="modal-bg" onClick={()=>setShow(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <h3>Create Proposal</h3>
+            <div className="field"><label>Type</label><select value={f.type} onChange={e=>setF({...f,type:e.target.value})}>{TYPES.map(t=><option key={t} value={t}>{t.replace(/_/g,' ')}</option>)}</select></div>
+            <div className="field"><label>Dataset</label><select value={f.datasetId} onChange={e=>setF({...f,datasetId:e.target.value})}><option value="">— Select —</option>{datasets.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
+            <div className="field"><label>Target Address</label><input value={f.target} onChange={e=>setF({...f,target:e.target.value})} placeholder="0x4444..." /></div>
+            <div className="field"><label>Metadata (JSON)</label><textarea value={f.metadata} onChange={e=>setF({...f,metadata:e.target.value})} placeholder={"{\"columns\":\"age,diagnosis\",\"rowFilter\":\"department='cardiology'\",\"durationSecs\":86400}"} /></div>
+            <div className="modal-actions"><button className="btn" onClick={()=>setShow(false)}>Cancel</button><button className="btn btn-primary" onClick={create}>Submit</button></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════
+// ACCESS MATRIX — column/row grants visualization
+// ════════════════════════════════════════════════════
+function AccessPage({ datasets, grants, user, role, toast, refresh }) {
+  const [dsId, setDsId] = useState('');
+  const isSteward = role === "DATA_STEWARD";
+  const isAnalyst = role === "ANALYST";
+
+  const filtered = dsId ? grants.filter(g => g.datasetId === dsId && g.active) : grants.filter(g => g.active);
+  const myGrants = isAnalyst ? filtered.filter(g => g.address === user) : filtered;
+
+  const dsSchema = (id) => {
+    const d = datasets.find(x => x.id === id);
+    return d?.schema || [];
+  };
+
+  // Group by dataset
+  const byDs = {};
+  myGrants.forEach(g => {
+    if (!byDs[g.datasetId]) byDs[g.datasetId] = { name: g.datasetName, grants: [] };
+    byDs[g.datasetId].grants.push(g);
+  });
+
+  return (
+    <div>
+      <div className="ph ph-row">
+        <div><h2>{isAnalyst ? "My Access Grants" : "Access Control Matrix"}</h2>
+          <p>{isAnalyst ? "Column and row restrictions applied to your queries." : "Column-level and row-level grants per user per dataset. Enforced via predicate injection."}</p></div>
+        <select value={dsId} onChange={e=>setDsId(e.target.value)} style={{minWidth:180,padding:'7px 10px',border:'1.5px solid var(--border)',borderRadius:'var(--radius-sm)',fontFamily:'var(--font-b)',fontSize:'0.84rem',fontWeight:500}}>
+          <option value="">All Datasets</option>
+          {datasets.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+      </div>
+
+      {Object.keys(byDs).length === 0 ? (
+        <div className="card"><div className="empty"><div className="empty-ico">⊞</div><p>No active grants{dsId?' for this dataset':''}.</p></div></div>
+      ) : Object.entries(byDs).map(([did, {name, grants: dg}]) => {
+        const schema = dsSchema(did);
+        const cols = schema.map(c => c.name);
+        return (
+          <div key={did} className="card">
+            <div className="card-h">
+              <h3 style={{textTransform:'none',letterSpacing:0}}>{name} <span style={{fontWeight:400,color:'var(--text-muted)'}}>— {dg.length} grant{dg.length!==1?'s':''}</span></h3>
+              <span className="badge badge-gray">ID: {did}</span>
+            </div>
+            {cols.length > 0 ? (
+              <div style={{overflowX:'auto'}}>
+                <table className="tbl">
+                  <thead><tr>
+                    <th style={{minWidth:160,position:'sticky',left:0,background:'var(--surface)',zIndex:2}}>User</th>
+                    <th style={{minWidth:80}}>Role</th>
+                    <th style={{minWidth:80}}>Level</th>
+                    {cols.map(c => <th key={c} style={{textAlign:'center',writingMode:'vertical-rl',textOrientation:'mixed',height:65,fontSize:'0.62rem',fontFamily:'var(--font-m)',padding:'4px 3px'}}>{c}</th>)}
+                    <th style={{minWidth:130}}>Row Filter</th>
+                    <th style={{minWidth:70}}>Expires</th>
+                    {isSteward && <th style={{minWidth:70}}>Actions</th>}
+                  </tr></thead>
+                  <tbody>{dg.map((g, i) => {
+                    const pc = g.parsedColumns || [];
+                    const hasCols = pc.length > 0;
+                    const grantedSet = new Set(hasCols ? pc.map(c=>c.toLowerCase()) : cols.map(c=>c.toLowerCase()));
+                    const exp = g.expiresAt && g.expiresAt > 0 ? new Date(g.expiresAt*1000).toLocaleDateString() : '∞';
+                    const dead = g.expiresAt > 0 && g.expiresAt < Date.now()/1000;
+                    const rc2 = g.role==='DATA_STEWARD'?'purple':g.role==='DATA_CUSTODIAN'?'amber':g.role==='ANALYST'?'blue':g.role==='SUBJECT'?'green':'gray';
+                    return (
+                      <tr key={i} style={{opacity:dead?0.4:1}}>
+                        <td style={{fontFamily:'var(--font-m)',fontSize:'0.74rem',position:'sticky',left:0,background:'var(--surface)',zIndex:1}}>{g.address.slice(0,10)}…{g.address.slice(-4)}</td>
+                        <td><span className={`badge badge-${rc2}`} style={{fontSize:'0.62rem'}}>{(g.role||'').replace('DATA_','')}</span></td>
+                        <td><span className={`badge ${g.level==='VIEW_DOWNLOAD'?'badge-green':'badge-blue'}`} style={{fontSize:'0.62rem'}}>{g.level==='VIEW_DOWNLOAD'?'View+DL':'View'}</span></td>
+                        {cols.map(c => {
+                          const has = grantedSet.has(c.toLowerCase());
+                          return <td key={c}><div className={`acl ${hasCols?(has?'yes':'no'):'all'}`}>{has?'✓':''}</div></td>;
+                        })}
+                        <td style={{fontFamily:'var(--font-m)',fontSize:'0.72rem',color:g.parsedRowFilter?'var(--teal-dark)':'var(--text-muted)',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={g.parsedRowFilter||''}>{g.parsedRowFilter||'—'}</td>
+                        <td style={{fontSize:'0.75rem',color:dead?'var(--red)':'var(--text-2)'}}>{dead?'Expired':exp}</td>
+                        {isSteward && <td><button className="btn btn-sm btn-red" onClick={async()=>{const r=await api('/grants/revoke',{method:'POST',body:{caller:user,target:g.address,datasetId:did}});if(r.success){toast('Revoked','success');refresh();}else toast(r.error,'error')}}>Revoke</button></td>}
+                      </tr>
+                    );
+                  })}</tbody>
+                </table>
+              </div>
+            ) : <p style={{color:'var(--text-muted)',fontSize:'0.84rem'}}>Ingest data to see column-level access matrix.</p>}
+
+            {/* Legend */}
+            <div style={{marginTop:12,fontSize:'0.75rem',color:'var(--text-2)',display:'flex',gap:16,flexWrap:'wrap'}}>
+              <span><span className="acl yes" style={{display:'inline-flex',width:14,height:14,verticalAlign:'middle',marginRight:4}}>✓</span> Column granted</span>
+              <span><span className="acl all" style={{display:'inline-flex',width:14,height:14,verticalAlign:'middle',marginRight:4}}></span> All columns</span>
+              <span><span className="acl no" style={{display:'inline-flex',width:14,height:14,verticalAlign:'middle',marginRight:4}}></span> Blocked</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════
+// COMPLIANCE — attach policies
+// ════════════════════════════════════════════════════
+function CompliancePage({ datasets, user, toast, refresh }) {
+  const [dsId, setDsId] = useState('');
+  const [pol, setPol] = useState('HIPAA');
+  const [atts, setAtts] = useState([]);
+  useEffect(() => { api("/compliance/attestations").then(r => setAtts(r.attestations || [])); }, []);
+
+  const attach = async () => {
+    if (!dsId) { toast("Select a dataset", "error"); return; }
+    const r = await api("/proposals", { method: "POST", body: { proposer: user, type: "ATTACH_POLICY", datasetId: dsId, target: user, metadata: JSON.stringify({policy:pol}) } });
+    if (r.success) { toast(`ATTACH_POLICY proposal #${r.proposalId} created — needs critical quorum (≥67% + all stewards)`, "success"); refresh(); }
+    else toast(r.error, "error");
+  };
+
+  return (
+    <div>
+      <div className="ph"><h2>Compliance Framework</h2><p>Attach HIPAA, GDPR, or DPDPA policies. Compliance is checked on every query with hash-linked attestation chain.</p></div>
+      <div className="card">
+        <div className="card-h"><h3>Attach Policy</h3></div>
+        <div className="field-row">
+          <div className="field" style={{flex:1}}><label>Dataset</label><select value={dsId} onChange={e=>setDsId(e.target.value)}><option value="">— Select —</option>{datasets.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
+          <div className="field" style={{flex:1}}><label>Policy</label><select value={pol} onChange={e=>setPol(e.target.value)}><option value="HIPAA">HIPAA</option><option value="GDPR">GDPR</option><option value="DPDPA">DPDPA</option></select></div>
+          <div style={{display:'flex',alignItems:'flex-end',paddingBottom:16}}><button className="btn btn-primary" onClick={attach}>Create Proposal</button></div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-h"><h3>Attestation Chain ({atts.length})</h3></div>
+        {atts.length === 0 ? <p style={{color:'var(--text-muted)'}}>No attestations yet. Execute queries with policies attached.</p> :
+          <div style={{maxHeight:400,overflowY:'auto'}}>{atts.slice(-20).reverse().map((a,i) => (
+            <div key={i} style={{padding:'8px 0',borderBottom:'1px solid var(--surface-2)',fontSize:'0.78rem'}}>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}><span className={`badge ${a.passed?'badge-green':'badge-red'}`}>{a.passed?'PASS':'FAIL'}</span><strong>{a.policy}</strong><span style={{color:'var(--text-muted)'}}>Dataset {a.datasetId}</span></div>
+              {a.attestationHash && <div className="hash" style={{marginTop:4,fontSize:'0.68rem'}}>{a.attestationHash}</div>}
+            </div>
+          ))}</div>
+        }
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════
+// SSI — Patient self-sovereignty (C3)
+// ════════════════════════════════════════════════════
+function SSIPage({ datasets, user, role, toast, refresh }) {
+  const [consents, setConsents] = useState([]);
+  const [chain, setChain] = useState(null);
+  const [dlgForm, setDlg] = useState({ delegate:'', datasetId:'', scope:'', dur: 86400 });
+  const [linkForm, setLink] = useState({ subject:'', datasetId:'', filter:'' });
+  const isSubject = role === "SUBJECT";
+  const isSteward = role === "DATA_STEWARD";
+
+  useEffect(() => {
+    api("/ssi/consents").then(r => setConsents(r.consents || []));
+    api("/ssi/verify-chain").then(r => setChain(r));
+  }, []);
+
+  const registerSubject = async () => {
+    const r = await api("/auth/register-subject", { method: "POST", body: { address: linkForm.subject || user } });
+    if (r.success) { toast(`Subject registered — DID: ${r.did}`, "success"); refresh(); }
+    else toast(r.error, "error");
+  };
+
+  const linkSubject = async () => {
+    const r = await api("/subjects/link", { method: "POST", body: { caller: user, subject: linkForm.subject, datasetId: linkForm.datasetId, filter: linkForm.filter } });
+    if (r.success) { toast(`Subject linked — consent: ${(r.consentHash||'').slice(0,20)}…`, "success"); refresh(); api("/ssi/consents").then(r => setConsents(r.consents || [])); }
+    else toast(r.error, "error");
+  };
+
+  const delegate = async () => {
+    const r = await api("/subjects/delegate", { method: "POST", body: { subject: user, delegate: dlgForm.delegate, datasetId: dlgForm.datasetId, scope: dlgForm.scope, durationSecs: dlgForm.dur } });
+    if (r.success) { toast(`Delegated — expires: ${new Date(r.expiresAt*1000).toLocaleString()}`, "success"); refresh(); api("/ssi/consents").then(r => setConsents(r.consents || [])); }
+    else toast(r.error, "error");
+  };
+
+  const revoke = async (dlg, did) => {
+    const r = await api("/subjects/revoke-delegation", { method: "POST", body: { subject: user, delegate: dlg, datasetId: did } });
+    if (r.success) { toast("Delegation revoked", "success"); refresh(); api("/ssi/consents").then(r => setConsents(r.consents || [])); }
+    else toast(r.error, "error");
+  };
+
+  return (
+    <div>
+      <div className="ph"><h2>{isSubject?"My Consent & Data":"Patient Registry (SSI)"}</h2>
+        <p>Self-Sovereign Identity (C3) — hash-linked consent chain, steward-independent delegation and revocation.</p></div>
+
+      {isSteward && (
+        <div className="card">
+          <div className="card-h"><h3>Register & Link Subject</h3></div>
+          <div className="field"><label>Subject Address</label><input value={linkForm.subject} onChange={e=>setLink({...linkForm,subject:e.target.value})} placeholder="0x6666..." /></div>
+          <button className="btn btn-blue" onClick={registerSubject} style={{marginBottom:14}}>Register as Subject</button>
+          <div className="field-row">
+            <div className="field" style={{flex:1}}><label>Dataset</label><select value={linkForm.datasetId} onChange={e=>setLink({...linkForm,datasetId:e.target.value})}><option value="">— Select —</option>{datasets.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
+            <div className="field" style={{flex:1}}><label>Row Filter</label><input value={linkForm.filter} onChange={e=>setLink({...linkForm,filter:e.target.value})} placeholder="patient_id='P001'" style={{fontFamily:'var(--font-m)',fontSize:'0.82rem'}} /></div>
+          </div>
+          <button className="btn btn-primary" onClick={linkSubject}>Link Subject to Dataset</button>
+        </div>
+      )}
+
+      {isSubject && (
+        <div className="card">
+          <div className="card-h"><h3>Delegate Access</h3></div>
+          <p style={{fontSize:'0.82rem',color:'var(--text-2)',marginBottom:14}}>Grant time-limited access to a doctor or researcher. No steward approval needed — this is your sovereign right.</p>
+          <div className="field-row">
+            <div className="field" style={{flex:1}}><label>Delegate Address</label><input value={dlgForm.delegate} onChange={e=>setDlg({...dlgForm,delegate:e.target.value})} placeholder="0x7777..." /></div>
+            <div className="field" style={{flex:1}}><label>Dataset</label><select value={dlgForm.datasetId} onChange={e=>setDlg({...dlgForm,datasetId:e.target.value})}><option value="">— Select —</option>{datasets.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
+          </div>
+          <div className="field-row">
+            <div className="field" style={{flex:1}}><label>Scope (columns)</label><input value={dlgForm.scope} onChange={e=>setDlg({...dlgForm,scope:e.target.value})} placeholder="diagnosis,blood_type" style={{fontFamily:'var(--font-m)',fontSize:'0.82rem'}} /></div>
+            <div className="field" style={{flex:1}}><label>Duration (seconds)</label><input type="number" value={dlgForm.dur} onChange={e=>setDlg({...dlgForm,dur:parseInt(e.target.value)||86400})} /></div>
+          </div>
+          <button className="btn btn-green" onClick={delegate}>Create Delegation</button>
+        </div>
+      )}
+
+      {/* Consent chain */}
+      <div className="card">
+        <div className="card-h">
+          <h3>Consent Chain ({consents.length} records)</h3>
+          {chain && <span className={`badge ${chain.valid?'badge-green':'badge-red'}`}>{chain.valid?'Chain Valid':'Chain Broken'}</span>}
+        </div>
+        {consents.length === 0 ? <p style={{color:'var(--text-muted)'}}>No consent records yet.</p> :
+          <div>{consents.slice().reverse().map((c, i) => (
+            <div key={i} className="consent">
+              <span className={`act ${c.action?.toLowerCase()}`}>{c.action}</span>
+              <span style={{fontSize:'0.75rem',color:'var(--text-2)',flex:1}}>
+                {c.subject?.slice(0,12)}… {c.action==='DELEGATE'?`→ ${(c.delegate||'').slice(0,12)}…`:''} {c.dataset?`(dataset ${c.dataset})`:''} {c.filter?`filter: ${c.filter}`:''}
+              </span>
+              <span className="hash" style={{fontSize:'0.62rem',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis'}}>{c.hash?.slice(0,24)}…</span>
+              {isSubject && c.action === 'DELEGATE' && <button className="btn btn-sm btn-red" onClick={()=>revoke(c.delegate,c.dataset)}>Revoke</button>}
+            </div>
+          ))}</div>
+        }
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════
+// AUDIT TRAIL
+// ════════════════════════════════════════════════════
+function AuditPage({ queryLogs }) {
+  return (
+    <div>
+      <div className="ph"><h2>Audit Trail</h2><p>Every query produces an on-chain attestation: H(query ‖ result ‖ merkle_root ‖ timestamp).</p></div>
+      {queryLogs.length === 0 ? <div className="card"><div className="empty"><div className="empty-ico">⊘</div><p>No queries logged yet.</p></div></div> : (
+        <div style={{overflowX:'auto'}}>
+          <table className="tbl">
+            <thead><tr><th>#</th><th>Querier</th><th>Dataset</th><th>Compliance</th><th>Query Hash</th><th>Attestation</th></tr></thead>
+            <tbody>{queryLogs.slice().reverse().map(l => (
+              <tr key={l.id}>
+                <td style={{fontWeight:700}}>{l.id}</td>
+                <td style={{fontFamily:'var(--font-m)',fontSize:'0.72rem'}}>{l.querier?.slice(0,14)}…</td>
+                <td>{l.datasetId}</td>
+                <td><span className={`badge ${l.compliancePassed?'badge-green':'badge-red'}`}>{l.compliancePassed?'Pass':'Fail'}</span></td>
+                <td><span className="hash" style={{fontSize:'0.65rem'}}>{l.queryHash?.slice(0,20)}…</span></td>
+                <td><span className="hash" style={{fontSize:'0.65rem'}}>{(l.attestation||'—').slice(0,20)}{l.attestation?'…':''}</span></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════
+// MERKLE INTEGRITY (C1)
+// ════════════════════════════════════════════════════
+function MerklePage({ datasets, toast }) {
+  const [dsId, setDsId] = useState('');
+  const [history, setHistory] = useState([]);
+  const [verify, setVerify] = useState(null);
+
+  const load = async (id) => {
+    setDsId(id);
+    if (id) {
+      const r = await api(`/audit/merkle/${id}`);
+      setHistory(r.roots || []);
+    }
+  };
+
+  const doVerify = async () => {
+    if (!dsId) { toast("Select a dataset", "error"); return; }
+    const r = await api("/merkle/verify", { method: "POST", body: { datasetId: dsId } });
+    setVerify(r);
+    if (r.match) toast("Merkle verification passed — data integrity confirmed", "success");
+    else toast("Merkle verification FAILED — data may be tampered", "error");
+  };
+
+  return (
+    <div>
+      <div className="ph"><h2>Merkle Integrity Verification</h2><p>Domain-separated Merkle tree (C1) with odd-leaf promotion and position binding. Verify data hasn't been tampered with.</p></div>
+      <div className="g2" style={{marginBottom:16}}>
+        <div className="field"><label>Dataset</label><select value={dsId} onChange={e=>load(e.target.value)}><option value="">— Select —</option>{datasets.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
+        <div style={{display:'flex',alignItems:'flex-end',paddingBottom:16,gap:8}}>
+          <button className="btn btn-primary" onClick={doVerify} disabled={!dsId}>Verify Integrity</button>
+        </div>
+      </div>
+
+      {verify && (
+        <div className="card">
+          <div className="card-h"><h3>Verification Result</h3><span className={`badge ${verify.match?'badge-green':'badge-red'}`}>{verify.match?'VALID':'INVALID'}</span></div>
+          <div className="g2">
+            <div><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',marginBottom:3}}>Stored Root</div><span className="hash">{verify.storedRoot||'—'}</span></div>
+            <div><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',marginBottom:3}}>Computed Root</div><span className="hash">{verify.computedRoot||'—'}</span></div>
+          </div>
+          {verify.rowCount !== undefined && <div style={{marginTop:10,fontSize:'0.82rem',color:'var(--text-2)'}}><strong>{verify.rowCount}</strong> rows verified across <strong>{verify.leafCount||'?'}</strong> Merkle leaves.</div>}
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="card">
+          <div className="card-h"><h3>Merkle Root History ({history.length} ingestions)</h3></div>
+          {history.map((h, i) => (
+            <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'8px 0',borderBottom:i<history.length-1?'1px solid var(--surface-2)':'none'}}>
+              <span style={{fontWeight:700,fontSize:'0.82rem',color:'var(--text-2)',minWidth:24}}>#{i+1}</span>
+              <span className="hash" style={{flex:1}}>{h.root}</span>
+              <span style={{fontSize:'0.72rem',color:'var(--text-muted)'}}>{h.rows} rows</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ════════════════════════════════════════════════════
+// DEMO WALKTHROUGH — automated 20-step demo
+// ════════════════════════════════════════════════════
+function DemoPage({ toast, refresh }) {
+  const [steps, setSteps] = useState([]);
+  const [cur, setCur] = useState(0);
+  const [results, setResults] = useState({});
+  const [running, setRunning] = useState(false);
+  const [detail, setDetail] = useState(null);
+  const [bcStatus, setBcStatus] = useState(null);
+
+  useEffect(() => {
+    api("/demo/steps").then(r => { setSteps(r.steps || []); setCur(r.currentStep || 0); });
+    api("/blockchain/status").then(r => setBcStatus(r));
+  }, []);
+
+  const runNext = async () => {
+    setRunning(true);
+    const r = await api("/demo/next", { method: "POST" });
+    if (!r.error || r.details) {
+      setResults(p => ({ ...p, [r.step]: r }));
+      setCur(r.step + 1);
+      toast(`Step ${r.step + 1}: ${r.title}`, r.error ? "error" : "success");
+      refresh();
+    } else { toast(r.error, "error"); }
+    setRunning(false);
+  };
+
+  const runAll = async () => {
+    setRunning(true);
+    for (let i = cur; i < steps.length; i++) {
+      const r = await api("/demo/next", { method: "POST" });
+      if (!r.error || r.details) { setResults(p => ({ ...p, [r.step]: r })); setCur(r.step + 1); await refresh(); }
+      else break;
+      await new Promise(r => setTimeout(r, 300));
+    }
+    toast("Demo complete — all contributions demonstrated!", "success");
+    setRunning(false);
+  };
+
+  const resetDemo = async () => {
+    await api("/demo/reset", { method: "POST" });
+    setCur(0); setResults({}); setDetail(null); refresh();
+    toast("Demo reset", "info");
+  };
+
+  return (
+    <div>
+      <div className="ph ph-row">
+        <div>
+          <h2>Demo Walkthrough</h2>
+          <p>20 steps covering all 4 contributions, 5 real data sources (S3, Kafka, PostgreSQL, MongoDB, documents), WQC governance, SSI consent, and attack scenarios.</p>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button className="btn" onClick={resetDemo} disabled={running}>Reset</button>
+          <button className="btn btn-primary" onClick={runNext} disabled={running||cur>=steps.length}>
+            {running ? "Running…" : cur >= steps.length ? "✓ Complete" : "▶ Next Step"}
+          </button>
+          <button className="btn" style={{background:'var(--amber)',color:'#fff',borderColor:'var(--amber)'}} onClick={runAll} disabled={running||cur>=steps.length}>Run All</button>
+        </div>
+      </div>
+
+      {bcStatus && (
+        <div className="card" style={{marginBottom:16,background:bcStatus.connected?'var(--green-light)':'var(--amber-light)',borderColor:bcStatus.connected?'var(--green)':'var(--amber)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <span style={{fontSize:'1.2rem'}}>{bcStatus.connected ? '⛓' : '⚠'}</span>
+            <div>
+              <div style={{fontWeight:700,fontSize:'0.85rem'}}>{bcStatus.connected ? 'Blockchain Connected (On-Chain Mode)' : 'Cache-Only Mode — Blockchain Not Connected'}</div>
+              <div style={{fontSize:'0.78rem',color:'var(--text-2)',marginTop:2}}>{bcStatus.connected ? `Block #${bcStatus.block_number} | ${bcStatus.contract_address}` : bcStatus.warning}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="stat-row">
+        <div className="stat"><div className="stat-val">{cur}</div><div className="stat-label">Steps Done</div></div>
+        <div className="stat"><div className="stat-val">{steps.length}</div><div className="stat-label">Total</div></div>
+        <div className="stat"><div className="stat-val">{Math.round((cur/Math.max(steps.length,1))*100)}%</div><div className="stat-label">Progress</div></div>
+      </div>
+
+      {steps.map((s, i) => {
+        const state = i < cur ? "done" : i === cur ? "active" : "pending";
+        const r = results[i];
+        const stateStyle = state === "done" ? {borderColor:'var(--green)',background:'var(--green-light)'}
+          : state === "active" ? {borderColor:'var(--teal)',background:'var(--teal-bg)',boxShadow:'var(--shadow-md)'}
+          : {opacity:0.6};
+        return (
+          <div key={i} className="card" style={{...stateStyle,cursor:r?'pointer':'default',marginBottom:8,padding:'12px 16px'}} onClick={() => r && setDetail(r)}>
+            <div style={{display:'flex',alignItems:'center',gap:12}}>
+              <span style={{fontFamily:'var(--font-m)',fontSize:'0.72rem',fontWeight:600,color:'var(--text-muted)',minWidth:28}}>
+                {state === "done" ? "✓" : state === "active" ? "→" : String(i+1).padStart(2,'0')}
+              </span>
+              <div style={{flex:1}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{fontWeight:600,fontSize:'0.85rem'}}>{s.title}</span>
+                  <span className="badge badge-purple">{s.c}</span>
+                </div>
+                <div style={{fontSize:'0.75rem',color:'var(--text-2)',marginTop:2}}>{s.desc}</div>
+              </div>
+              {r && r.details && <span className="badge badge-green">Done</span>}
+            </div>
+          </div>
+        );
+      })}
+
+      {detail && (
+        <div className="modal-bg" onClick={() => setDetail(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>Step {detail.step + 1}: {detail.title}</h3>
+            <p style={{fontSize:'0.82rem',color:'var(--text-2)',marginBottom:12}}>{detail.description}</p>
+            <div style={{background:'var(--bg-warm)',borderRadius:'var(--radius-sm)',padding:14,fontFamily:'var(--font-m)',fontSize:'0.72rem',whiteSpace:'pre-wrap',maxHeight:400,overflowY:'auto',border:'1px solid var(--surface-3)'}}>
+              {JSON.stringify(detail.details, null, 2)}
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setDetail(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══ MOUNT ═══
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
