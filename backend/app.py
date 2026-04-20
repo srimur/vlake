@@ -1406,6 +1406,11 @@ def ingest_document_ep():
     except Exception as e:
         log.error(f"Encryption failed for {fn}: {e}")
         return jsonify({"error": "Encryption failed - check VLAKE_MASTER_KEY"}), 500
+    # Content-address the ciphertext. This hash lives inside the DuckDB row,
+    # so it is part of the Merkle leaf and therefore anchored on-chain via
+    # recordIngestion(merkleRoot). Any later tampering with the binary in
+    # MinIO will be caught at download time (see verify-on-download below).
+    ciphertext_hash = hashlib.sha256(ciphertext).hexdigest()
     location = _store_encrypted(did, doc_id, ciphertext)
 
     mime = SUPPORTED_DOC_TYPES.get(ext, {}).get("mime", "application/octet-stream")
@@ -1413,11 +1418,13 @@ def ingest_document_ep():
         "doc_id": doc_id, "filename": fn, "mime_type": mime,
         "file_size": len(raw), "page_count": 0,
         "extracted_text": extracted[:100000], "metadata_json": "{}",
-        "file_hash": fhash, "tags": tags, "uploaded_by": c,
+        "file_hash": fhash, "ciphertext_hash": ciphertext_hash,
+        "tags": tags, "uploaded_by": c,
         "uploaded_at": int(time.time()), "patient_id": pid,
     }
     _doc_store.setdefault(did, {})[doc_id] = {
         "filename": fn, "mime": mime, "hash": fhash,
+        "ciphertext_hash": ciphertext_hash,
         "encrypted": True, "ext": ext, "location": location,
         "size": len(raw), "uploaded_by": c, "uploaded_at": int(time.time()),
     }
@@ -1428,7 +1435,7 @@ def ingest_document_ep():
         root, rc = _post_ingest(did, tbl)
         return jsonify({
             "success": True, "docId": doc_id, "filename": fn,
-            "fileHash": fhash, "encrypted": True,
+            "fileHash": fhash, "ciphertextHash": ciphertext_hash, "encrypted": True,
             "encryptedSize": len(ciphertext), "originalSize": len(raw),
             "storage": location["backend"],
             "extractedTextLength": len(doc["extracted_text"]),
@@ -1446,6 +1453,7 @@ def list_documents(did):
             {
                 "docId": k, "filename": v.get("filename", ""),
                 "mime": v.get("mime", ""), "hash": v.get("hash", ""),
+                "ciphertextHash": v.get("ciphertext_hash", ""),
                 "encrypted": bool(v.get("encrypted")),
                 "size": v.get("size", 0),
                 "uploadedBy": v.get("uploaded_by", ""),
@@ -1493,9 +1501,41 @@ def download_document(did, doc_id):
 
     try:
         ciphertext = _load_encrypted(meta["location"])
+    except Exception as e:
+        log.error(f"Load failed for {doc_id}: {e}")
+        return jsonify({"error": "Ciphertext load failed"}), 500
+
+    # Verify the fetched ciphertext matches the hash anchored on-chain
+    # (via the Merkle root over the DuckDB row that carries ciphertext_hash).
+    # The check catches tampering at the MinIO/storage layer: a rogue DBA
+    # who swaps an object would be detected here, not after decryption.
+    expected_hash = meta.get("ciphertext_hash", "")
+    if expected_hash:
+        actual_hash = hashlib.sha256(ciphertext).hexdigest()
+        if actual_hash != expected_hash:
+            log.error(
+                f"CIPHERTEXT HASH MISMATCH did={did} doc={doc_id} "
+                f"expected={expected_hash[:16]}... actual={actual_hash[:16]}..."
+            )
+            try:
+                with open(os.path.join(DATA_DIR, "document_access_log.jsonl"), "a") as f:
+                    f.write(json.dumps({
+                        "t": int(time.time()), "caller": caller, "did": did,
+                        "doc_id": doc_id, "event": "CIPHERTEXT_TAMPER_DETECTED",
+                        "expected": expected_hash, "actual": actual_hash,
+                    }) + "\n")
+            except Exception:
+                pass
+            return jsonify({
+                "error": "Ciphertext integrity check failed: stored object "
+                         "does not match the hash anchored on-chain. Download refused.",
+                "expected": expected_hash, "actual": actual_hash,
+            }), 409
+
+    try:
         plaintext = _decrypt_bytes(did, ciphertext)
     except Exception as e:
-        log.error(f"Decrypt/load failed for {doc_id}: {e}")
+        log.error(f"Decrypt failed for {doc_id}: {e}")
         return jsonify({"error": "Decryption failed"}), 500
 
     log.info(f"Document download GRANTED did={did} doc={doc_id} caller={caller} ({reason})")
