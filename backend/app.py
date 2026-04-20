@@ -566,11 +566,23 @@ def connect_source(did, src_type, config, tbl):
             mc.fget_object(bkt, obj.object_name, local)
             local_paths.append(local.replace("\\","/"))
         log.info(f"S3/MinIO: downloaded {len(local_paths)} object(s) to {tmp_dir}")
-        # Use DuckDB glob over the downloaded files. read_csv_auto / read_json_auto /
-        # read_parquet handle the rest.
+        # Use DuckDB glob over the downloaded files. For CSV we force explicit
+        # delimiter/quote parameters because read_csv_auto's sniffer chokes on
+        # CRLF-terminated files produced by Python's csv.DictWriter (the csv
+        # module's default lineterminator is \r\n regardless of platform, and
+        # that combination trips the sniff heuristics). Explicit delim + quote
+        # + auto_detect=false bypasses the sniffer entirely.
         glob = os.path.join(tmp_dir, f"*.{fmt}").replace("\\","/")
         if fmt == "csv":
-            duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_csv_auto(\'{glob}\', header=true)')
+            # Explicit delim + header defeats the auto-sniffer (which chokes
+            # on CRLF-terminated files) while still letting DuckDB auto-detect
+            # per-column types. all_varchar=false (the default) keeps integer
+            # / date columns typed rather than coercing everything to VARCHAR.
+            duck.execute(
+                f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM '
+                f"read_csv('{glob}', delim=',', header=true, quote='\"', "
+                f"strict_mode=false)"
+            )
         elif fmt == "json":
             duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_json_auto(\'{glob}\')')
         else:
@@ -1141,19 +1153,23 @@ def check_compliance(query, did, querier, grant, schema):
             checks.append({"rule":"temporal","passed":False,"detail":"Expired"}); passed=False
         else: checks.append({"rule":"temporal","passed":True,"detail":"Valid"})
         checks.append({"rule":"audit","passed":True,"detail":"Logged"})
-        if "select *" in ql and sens:
-            # Minimum-necessary is satisfied when the grant itself
-            # scopes the data: a row filter (e.g. patient_id='P0001'
-            # for a subject retrieving their own record) or an
-            # explicit column allow-list both constitute "least
-            # privilege" by construction. Only reject SELECT * when
-            # neither scoping mechanism is present.
+        # Minimum-necessary only fires when the query actually exposes
+        # sensitive data. Previously we keyed off the policy's sensitive
+        # *list*, which made a SELECT * on a dataset with NO PHI columns
+        # fail as long as a PHI-bearing policy was attached. Compare
+        # against `exposed` (the intersection of policy.sensitive with
+        # the actual schema) instead.
+        if "select *" in ql and exposed:
+            # Scoping can come from either an explicit column allow-list
+            # or a row filter (e.g. patient_id='P0001' for a subject
+            # retrieving their own record). Either counts as least-privilege.
             has_scope = bool((grant.get("rowFilter","") or "").strip()) or bool((grant.get("allowedColumns","") or "").strip())
             if has_scope:
                 checks.append({"rule":"minimum_necessary","passed":True,"detail":"Scoped by grant row/column filter"})
             else:
-                checks.append({"rule":"minimum_necessary","passed":False,"detail":"SELECT * on sensitive without grant scope"}); passed=False
-        else: checks.append({"rule":"minimum_necessary","passed":True,"detail":"OK"})
+                checks.append({"rule":"minimum_necessary","passed":False,"detail":f"SELECT * exposes PHI columns {exposed} without grant scope"}); passed=False
+        else:
+            checks.append({"rule":"minimum_necessary","passed":True,"detail":"OK"})
         att = sha256(json.dumps({"qh":qh,"p":pn,"c":checks,"prev":prev,"t":int(time.time())},sort_keys=True))
         prev = att; results.append({"policy":pn,"checks":checks,"passed":passed,"attestation":att})
     ap = all(r["passed"] for r in results) if results else True
