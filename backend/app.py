@@ -965,7 +965,17 @@ def check_compliance(query, did, querier, grant, schema):
         else: checks.append({"rule":"temporal","passed":True,"detail":"Valid"})
         checks.append({"rule":"audit","passed":True,"detail":"Logged"})
         if "select *" in ql and sens:
-            checks.append({"rule":"minimum_necessary","passed":False,"detail":"SELECT * on sensitive"}); passed=False
+            # Minimum-necessary is satisfied when the grant itself
+            # scopes the data: a row filter (e.g. patient_id='P0001'
+            # for a subject retrieving their own record) or an
+            # explicit column allow-list both constitute "least
+            # privilege" by construction. Only reject SELECT * when
+            # neither scoping mechanism is present.
+            has_scope = bool((grant.get("rowFilter","") or "").strip()) or bool((grant.get("allowedColumns","") or "").strip())
+            if has_scope:
+                checks.append({"rule":"minimum_necessary","passed":True,"detail":"Scoped by grant row/column filter"})
+            else:
+                checks.append({"rule":"minimum_necessary","passed":False,"detail":"SELECT * on sensitive without grant scope"}); passed=False
         else: checks.append({"rule":"minimum_necessary","passed":True,"detail":"OK"})
         att = sha256(json.dumps({"qh":qh,"p":pn,"c":checks,"prev":prev,"t":int(time.time())},sort_keys=True))
         prev = att; results.append({"policy":pn,"checks":checks,"passed":passed,"attestation":att})
