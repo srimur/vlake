@@ -1746,10 +1746,27 @@ def execute_query():
             else: grant={"allowedColumns":"","rowFilter":"","level":"VIEW_DOWNLOAD","expiresAt":0,"active":True}
         else:
             grant=S["grants"].get(q,{}).get(did)
-            if not grant and role=="SUBJECT":
-                sf=S["subjects"].get(q,{}).get("datasets",{}).get(did,"")
+            # Self-sovereign access: a subject must always be able to see
+            # their own data. We run the consent-chain fallback when the
+            # subject has either no grant at all OR an inactive one (e.g.
+            # after a steward revoked it, which should not apply to the
+            # subject's own-data grant - that's a design bug, not a feature).
+            if role=="SUBJECT" and (not grant or not grant.get("active")):
+                # Two sources of truth, tried in order:
+                #   (1) S["subjects"] - set by link_subject() at link time
+                #   (2) the on-chain-anchored consent chain - authoritative,
+                #       survives state wipes / container restarts as long
+                #       as the chain (and its Merkle anchor) is intact.
+                sf = S["subjects"].get(q,{}).get("datasets",{}).get(did,"")
+                if not sf:
+                    for ci in S["ssi_consents"]:
+                        if (ci.get("action") == "LINK"
+                                and ci.get("subject") == q
+                                and str(ci.get("dataset")) == str(did)):
+                            sf = ci.get("filter", "")
+                            # Rehydrate the in-memory index so later checks hit the fast path.
+                            S["subjects"].setdefault(q, {"datasets": {}})["datasets"][did] = sf
                 if sf:
-                    # P4 fix: Auto-verify consent chain before SSI-based access
                     chain_valid = True; ph = "genesis"
                     for ci in S["ssi_consents"]:
                         if ci.get("prev_hash") != ph: chain_valid = False; break
@@ -1757,8 +1774,20 @@ def execute_query():
                     if not chain_valid:
                         log.warning(f"SSI consent chain integrity check FAILED for subject {q}")
                     grant={"allowedColumns":"","rowFilter":sf,"level":"VIEW_ONLY","expiresAt":0,"active":True}
+                    # Also materialise the grant into S["grants"] so
+                    # the Access Matrix and other listings reflect it.
+                    S["grants"].setdefault(q,{})[did]=dict(grant, datasetId=did, grantee=q,
+                                                            grantedAt=int(time.time()))
         if grant: cache_set(q,did,grant)
-    if not grant or not grant.get("active"): return jsonify({"error":"No access grant"}),403
+    if not grant or not grant.get("active"):
+        # More helpful error for subjects, who the UI routes here
+        # before a steward has linked them. The subject in question
+        # needs an SSI LINK consent record binding them to this dataset.
+        if role == "SUBJECT":
+            return jsonify({"error": "No SSI linkage found for your DID on this dataset. "
+                                     "A steward or custodian must run Link Subject first "
+                                     "(or run the demo walkthrough, which does it at step 9)."}), 403
+        return jsonify({"error":"No access grant"}),403
     if grant.get("expiresAt",0)>0 and grant["expiresAt"]<time.time(): return jsonify({"error":"Grant expired"}),403
     pq=raw.replace("{table}",f'"{tbl}"')
     if f'"{tbl}"' not in pq and tbl not in pq and "FROM" not in pq.upper(): pq=pq.rstrip(";")+f' FROM "{tbl}"'
@@ -1936,6 +1965,19 @@ def revoke_grant():
     d=request.json; c=d.get("caller","").lower()
     if not S["stewards"].get(c): return jsonify({"error":"Only stewards"}),403
     t=d.get("target","").lower(); did=str(d.get("datasetId",""))
+    # A subject's access to their own record is self-sovereign. The
+    # steward/custodian who did the initial LINK can REVOKE the linkage
+    # (/api/subjects/revoke-delegation, which also appends a REVOKE consent),
+    # but they cannot silently flip the subject's grant off via the
+    # generic grants/revoke endpoint - that would contradict the SSI
+    # property we advertise in C3.
+    if S["roles"].get(t) == "SUBJECT":
+        return jsonify({
+            "error": "Cannot revoke a subject's own-data grant from this endpoint. "
+                     "Use /api/subjects/revoke-delegation which appends a REVOKE "
+                     "consent record. Subject own-data access is self-sovereign "
+                     "and cannot be stripped by a steward."
+        }), 409
     g=S["grants"].get(t,{}).get(did)
     if not g: return jsonify({"error":"Not found"}),404
     g["active"]=False; cache_inv(t,did)
