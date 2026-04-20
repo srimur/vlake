@@ -1,0 +1,12 @@
+[
+  {"reading_id": "V-000001", "patient_id": "P0001", "heart_rate": 78, "systolic_bp": 128, "diastolic_bp": 82, "spo2": 97, "recorded_at": "2025-11-12T09:00:00"},
+  {"reading_id": "V-000002", "patient_id": "P0001", "heart_rate": 82, "systolic_bp": 130, "diastolic_bp": 84, "spo2": 96, "recorded_at": "2025-11-12T15:00:00"},
+  {"reading_id": "V-000003", "patient_id": "P0002", "heart_rate": 66, "systolic_bp": 118, "diastolic_bp": 76, "spo2": 98, "recorded_at": "2025-11-12T09:05:00"},
+  {"reading_id": "V-000004", "patient_id": "P0003", "heart_rate": 90, "systolic_bp": 142, "diastolic_bp": 92, "spo2": 95, "recorded_at": "2025-11-12T09:10:00"},
+  {"reading_id": "V-000005", "patient_id": "P0004", "heart_rate": 72, "systolic_bp": 124, "diastolic_bp": 78, "spo2": 98, "recorded_at": "2025-11-12T09:15:00"},
+  {"reading_id": "V-000006", "patient_id": "P0005", "heart_rate": 68, "systolic_bp": 116, "diastolic_bp": 72, "spo2": 99, "recorded_at": "2025-11-12T09:20:00"},
+  {"reading_id": "V-000007", "patient_id": "P0006", "heart_rate": 84, "systolic_bp": 138, "diastolic_bp": 88, "spo2": 96, "recorded_at": "2025-11-12T09:25:00"},
+  {"reading_id": "V-000008", "patient_id": "P0007", "heart_rate": 70, "systolic_bp": 122, "diastolic_bp": 80, "spo2": 97, "recorded_at": "2025-11-12T09:30:00"},
+  {"reading_id": "V-000009", "patient_id": "P0008", "heart_rate": 76, "systolic_bp": 126, "diastolic_bp": 82, "spo2": 97, "recorded_at": "2025-11-12T09:35:00"},
+  {"reading_id": "V-000010", "patient_id": "P0001", "heart_rate": 88, "systolic_bp": 134, "diastolic_bp": 86, "spo2": 95, "recorded_at": "2025-11-13T08:00:00"}
+]

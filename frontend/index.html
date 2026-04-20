@@ -242,12 +242,92 @@ const USERS = [
   { addr: "0x7777777777777777777777777777777777777777", label: "Investigator",   desc: "Dr. Williams",       role: "NONE" },
 ];
 
+// ════════════════════════════════════════════════════
+// REUSABLE UI HELPERS
+// Kept tiny on purpose: copy-to-clipboard affordance,
+// truncated-address display with a copy button, and a
+// friendly address picker that lets the user pick a known
+// identity instead of retyping a 42-character hex string.
+// ════════════════════════════════════════════════════
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      // Fallback for http:// origins where the async Clipboard API is blocked
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    return true;
+  } catch { return false; }
+}
+
+function Addr({ addr, short = 10, mono = true, onToast }) {
+  const [copied, setCopied] = useState(false);
+  if (!addr) return <span style={{color:'var(--text-muted)'}}>—</span>;
+  const display = short > 0
+    ? `${addr.slice(0, short)}…${addr.slice(-4)}`
+    : addr;
+  const doCopy = async (e) => {
+    e?.stopPropagation?.();
+    const ok = await copyToClipboard(addr);
+    setCopied(ok);
+    if (onToast) onToast(ok ? `Copied ${addr.slice(0,10)}…` : "Copy failed", ok ? "success" : "error");
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <span style={{display:'inline-flex',alignItems:'center',gap:4,fontFamily: mono?'var(--font-m)':'inherit',fontSize:'0.78rem'}}>
+      <span title={addr}>{display}</span>
+      <button
+        type="button"
+        onClick={doCopy}
+        title={copied ? "Copied!" : "Copy full address"}
+        style={{border:'none',background:copied?'var(--green)':'transparent',cursor:'pointer',padding:'1px 4px',borderRadius:3,color:copied?'#fff':'var(--text-muted)',fontSize:'0.72rem',lineHeight:1,transition:'all 0.15s'}}
+      >{copied ? '✓' : '⎘'}</button>
+    </span>
+  );
+}
+
+// Dropdown + free-text hybrid for address input fields.
+// Users can pick a known identity (Pharma Co., Participant, etc.)
+// OR type a custom 0x address. Prevents typos like truncated
+// addresses that were silently creating broken grants.
+function AddrInput({ value, onChange, placeholder = "0x...", includeCustom = true }) {
+  const KNOWN = USERS.map(u => ({ addr: u.addr, label: `${u.label} — ${u.desc}` }));
+  const isKnown = KNOWN.some(k => k.addr.toLowerCase() === (value||'').toLowerCase());
+  const pick = (v) => {
+    if (v === "__custom__") onChange("");
+    else onChange(v);
+  };
+  return (
+    <div style={{display:'flex',gap:6}}>
+      <select
+        value={isKnown ? value : (includeCustom ? "__custom__" : "")}
+        onChange={e => pick(e.target.value)}
+        style={{flex:'0 0 200px',padding:'7px 8px',border:'1.5px solid var(--border)',borderRadius:'var(--radius-sm)',fontSize:'0.82rem',fontFamily:'var(--font-b)',background:'var(--surface)'}}>
+        <option value="">— Pick identity —</option>
+        {KNOWN.map(k => <option key={k.addr} value={k.addr}>{k.label}</option>)}
+        {includeCustom && <option value="__custom__">Custom address…</option>}
+      </select>
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value.trim())}
+        placeholder={placeholder}
+        style={{flex:1,fontFamily:'var(--font-m)',fontSize:'0.8rem'}}
+      />
+    </div>
+  );
+}
+
 function navFor(role) {
   if (role === "DATA_STEWARD") return [
     { id: "demo", label: "Demo Walkthrough", ico: "▶", g: "Demo" },
-    
+
     { id: "datasets",   label: "Datasets",        ico: "▦", g: "Govern" },
-    { id: "proposals",  label: "Proposals (WQC)",  ico: "☐", g: "Govern" },
+    { id: "ingest",     label: "Ingest Data",      ico: "⬆", g: "Govern" },
+    { id: "proposals",  label: "Proposals (WQG)",  ico: "☐", g: "Govern" },
     { id: "access",     label: "Access Matrix",    ico: "⊞", g: "Govern" },
     { id: "compliance", label: "Compliance",       ico: "◉", g: "Govern" },
     { id: "ssi",        label: "Patient Registry", ico: "♥", g: "SSI" },
@@ -354,7 +434,9 @@ function App() {
             {USERS.map(u => <option key={u.addr} value={u.addr}>{u.label} — {u.desc}</option>)}
           </select>
           <div className={`role-tag ${rc}`}>{role.replace("DATA_","")}</div>
-          <div className="sb-addr">{user.slice(0,20)}…</div>
+          <div className="sb-addr" style={{display:'flex',alignItems:'center',gap:6}}>
+            <Addr addr={user} short={10} onToast={toast} />
+          </div>
         </div>
       </aside>
       <main className="main" key={page}>
@@ -425,9 +507,13 @@ function DatasetsPage({ datasets, user, role, toast, refresh, setPage }) {
               <span className="hash">{d.merkleRoot}</span>
             </div>
           )}
-          <div style={{display:'flex',gap:24,fontSize:'0.78rem',color:'var(--text-2)',marginTop:10,flexWrap:'wrap'}}>
-            <span><strong>Custodians:</strong> {(d.custodians||[]).length > 0 ? d.custodians.map(c => c.slice(0,10)+'…').join(', ') : 'None'}</span>
-            <span><strong>Analysts:</strong> {(d.analysts||[]).length > 0 ? d.analysts.map(a => a.slice(0,10)+'…').join(', ') : 'None'}</span>
+          <div style={{display:'flex',gap:24,fontSize:'0.78rem',color:'var(--text-2)',marginTop:10,flexWrap:'wrap',alignItems:'center'}}>
+            <span style={{display:'inline-flex',alignItems:'center',gap:6,flexWrap:'wrap'}}><strong>Custodians:</strong>
+              {(d.custodians||[]).length > 0 ? d.custodians.map(c => <Addr key={c} addr={c} onToast={toast} />) : <span style={{color:'var(--text-muted)'}}>None</span>}
+            </span>
+            <span style={{display:'inline-flex',alignItems:'center',gap:6,flexWrap:'wrap'}}><strong>Analysts:</strong>
+              {(d.analysts||[]).length > 0 ? d.analysts.map(a => <Addr key={a} addr={a} onToast={toast} />) : <span style={{color:'var(--text-muted)'}}>None</span>}
+            </span>
             <span><strong>Policies:</strong> {(d.policies||[]).map(p => p.toUpperCase()).join(', ') || 'None'}</span>
           </div>
         </div>
@@ -475,10 +561,13 @@ function IngestPage({ datasets, user, role, toast, refresh }) {
   const [docTags, setDocTags] = useState('');
   const [docResult, setDocResult] = useState(null);
 
-  if (role !== "DATA_CUSTODIAN") return (
+  // Stewards can ingest as a bootstrap privilege (before a custodian is
+  // assigned); after that, only the custodian for that dataset can. The
+  // backend /api/ingest/* endpoints enforce the fine-grained check.
+  if (role !== "DATA_CUSTODIAN" && role !== "DATA_STEWARD") return (
     <div>
-      <div className="ph"><h2>Data Ingestion</h2><p>Separation of duties: only custodians can ingest data into datasets.</p></div>
-      <div className="card"><div className="empty"><div className="empty-ico">⊘</div><p>You are a <strong>{role.replace("DATA_","")}</strong>. Switch to a custodian identity to ingest data.</p></div></div>
+      <div className="ph"><h2>Data Ingestion</h2><p>Separation of duties: only stewards (bootstrap) or custodians can ingest data.</p></div>
+      <div className="card"><div className="empty"><div className="empty-ico">⊘</div><p>You are a <strong>{role.replace("DATA_","")}</strong>. Switch to a steward or custodian identity to ingest data.</p></div></div>
     </div>
   );
 
@@ -526,6 +615,9 @@ function IngestPage({ datasets, user, role, toast, refresh }) {
   return (
     <div>
       <div className="ph"><h2>Ingest Data</h2><p>Load structured data (CSV, Parquet, JSON) or unstructured documents (PDF, images, DOCX) into datasets. Merkle root computed automatically (C1).</p></div>
+      <div style={{background:'var(--teal-bg)',border:'1.5px solid var(--teal)',borderRadius:'var(--radius)',padding:'10px 14px',marginBottom:14,fontSize:'0.82rem',color:'var(--text-2)'}}>
+        <strong style={{color:'var(--teal-dark)'}}>Tip:</strong> ready-to-use demo files (CSV, JSON, PDF, image, TXT) live in the repo at <code style={{fontFamily:'var(--font-m)',background:'rgba(0,0,0,0.05)',padding:'1px 5px',borderRadius:3}}>samples/</code>. Drag one into the upload zone below, or paste a JSON array into the JSON Stream tab.
+      </div>
       <div className="field"><label>Target Dataset</label>
         <select value={dsId} onChange={e => setDsId(e.target.value)}><option value="">— Select —</option>
           {datasets.map(d => <option key={d.id} value={d.id}>{d.name} (ID: {d.id})</option>)}
@@ -715,7 +807,7 @@ function ProposalsPage({ proposals, datasets, user, role, toast, refresh }) {
   return (
     <div>
       <div className="ph ph-row">
-        <div><h2>Governance Proposals</h2><p>Weighted Quorum Consensus (C2) — role-weighted multi-party voting with formal safety guarantees.</p></div>
+        <div><h2>Governance Proposals</h2><p>Weighted Quorum Governance (C2) — role-weighted multi-party voting atop QBFT ordering, with formal safety guarantees.</p></div>
         {(role === "DATA_STEWARD" || role === "DATA_CUSTODIAN") && <button className="btn btn-primary" onClick={() => setShow(true)}>+ New Proposal</button>}
       </div>
 
@@ -748,7 +840,7 @@ function ProposalsPage({ proposals, datasets, user, role, toast, refresh }) {
               <div><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Custodian Votes</div>
                 <div style={{marginTop:3}}><span style={{color:'var(--green)',fontWeight:700}}>✓{w.custodianYes||0}</span> / <span style={{color:'var(--red)',fontWeight:700}}>✕{w.custodianNo||0}</span> <span style={{color:'var(--text-muted)'}}>of {w.custodianTotal||0}</span></div></div>
               <div><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Target</div>
-                <div style={{marginTop:3,fontFamily:'var(--font-m)',fontSize:'0.75rem'}}>{p.target?p.target.slice(0,16)+'…':'—'}</div></div>
+                <div style={{marginTop:3}}><Addr addr={p.target} short={16} onToast={toast} /></div></div>
             </div>
             {w.quorumCertificate && <div style={{marginBottom:10}}><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:3}}>Quorum Certificate</div><span className="hash">{w.quorumCertificate}</span></div>}
             {p.metadata && p.metadata !== '{}' && <div style={{marginBottom:10}}><div style={{fontSize:'0.68rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:3}}>Metadata</div><span className="hash">{p.metadata}</span></div>}
@@ -768,7 +860,7 @@ function ProposalsPage({ proposals, datasets, user, role, toast, refresh }) {
             <h3>Create Proposal</h3>
             <div className="field"><label>Type</label><select value={f.type} onChange={e=>setF({...f,type:e.target.value})}>{TYPES.map(t=><option key={t} value={t}>{t.replace(/_/g,' ')}</option>)}</select></div>
             <div className="field"><label>Dataset</label><select value={f.datasetId} onChange={e=>setF({...f,datasetId:e.target.value})}><option value="">— Select —</option>{datasets.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
-            <div className="field"><label>Target Address</label><input value={f.target} onChange={e=>setF({...f,target:e.target.value})} placeholder="0x4444..." /></div>
+            <div className="field"><label>Target Address</label><AddrInput value={f.target} onChange={v=>setF({...f,target:v})} placeholder="0x4444..." /></div>
             <div className="field"><label>Metadata (JSON)</label><textarea value={f.metadata} onChange={e=>setF({...f,metadata:e.target.value})} placeholder={"{\"columns\":\"age,diagnosis\",\"rowFilter\":\"department='cardiology'\",\"durationSecs\":86400}"} /></div>
             <div className="modal-actions"><button className="btn" onClick={()=>setShow(false)}>Cancel</button><button className="btn btn-primary" onClick={create}>Submit</button></div>
           </div>
@@ -844,7 +936,7 @@ function AccessPage({ datasets, grants, user, role, toast, refresh }) {
                     const rc2 = g.role==='DATA_STEWARD'?'purple':g.role==='DATA_CUSTODIAN'?'amber':g.role==='ANALYST'?'blue':g.role==='SUBJECT'?'green':'gray';
                     return (
                       <tr key={i} style={{opacity:dead?0.4:1}}>
-                        <td style={{fontFamily:'var(--font-m)',fontSize:'0.74rem',position:'sticky',left:0,background:'var(--surface)',zIndex:1}}>{g.address.slice(0,10)}…{g.address.slice(-4)}</td>
+                        <td style={{position:'sticky',left:0,background:'var(--surface)',zIndex:1}}><Addr addr={g.address} short={10} onToast={toast} /></td>
                         <td><span className={`badge badge-${rc2}`} style={{fontSize:'0.62rem'}}>{(g.role||'').replace('DATA_','')}</span></td>
                         <td><span className={`badge ${g.level==='VIEW_DOWNLOAD'?'badge-green':'badge-blue'}`} style={{fontSize:'0.62rem'}}>{g.level==='VIEW_DOWNLOAD'?'View+DL':'View'}</span></td>
                         {cols.map(c => {
@@ -964,7 +1056,7 @@ function SSIPage({ datasets, user, role, toast, refresh }) {
       {isSteward && (
         <div className="card">
           <div className="card-h"><h3>Register & Link Subject</h3></div>
-          <div className="field"><label>Subject Address</label><input value={linkForm.subject} onChange={e=>setLink({...linkForm,subject:e.target.value})} placeholder="0x6666..." /></div>
+          <div className="field"><label>Subject Address</label><AddrInput value={linkForm.subject} onChange={v=>setLink({...linkForm,subject:v})} placeholder="0x6666..." /></div>
           <button className="btn btn-blue" onClick={registerSubject} style={{marginBottom:14}}>Register as Subject</button>
           <div className="field-row">
             <div className="field" style={{flex:1}}><label>Dataset</label><select value={linkForm.datasetId} onChange={e=>setLink({...linkForm,datasetId:e.target.value})}><option value="">— Select —</option>{datasets.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
@@ -979,7 +1071,7 @@ function SSIPage({ datasets, user, role, toast, refresh }) {
           <div className="card-h"><h3>Delegate Access</h3></div>
           <p style={{fontSize:'0.82rem',color:'var(--text-2)',marginBottom:14}}>Grant time-limited access to a doctor or researcher. No steward approval needed — this is your sovereign right.</p>
           <div className="field-row">
-            <div className="field" style={{flex:1}}><label>Delegate Address</label><input value={dlgForm.delegate} onChange={e=>setDlg({...dlgForm,delegate:e.target.value})} placeholder="0x7777..." /></div>
+            <div className="field" style={{flex:1}}><label>Delegate Address</label><AddrInput value={dlgForm.delegate} onChange={v=>setDlg({...dlgForm,delegate:v})} placeholder="0x7777..." /></div>
             <div className="field" style={{flex:1}}><label>Dataset</label><select value={dlgForm.datasetId} onChange={e=>setDlg({...dlgForm,datasetId:e.target.value})}><option value="">— Select —</option>{datasets.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
           </div>
           <div className="field-row">
@@ -998,10 +1090,13 @@ function SSIPage({ datasets, user, role, toast, refresh }) {
         </div>
         {consents.length === 0 ? <p style={{color:'var(--text-muted)'}}>No consent records yet.</p> :
           <div>{consents.slice().reverse().map((c, i) => (
-            <div key={i} className="consent">
+            <div key={i} className="consent" style={{alignItems:'center'}}>
               <span className={`act ${c.action?.toLowerCase()}`}>{c.action}</span>
-              <span style={{fontSize:'0.75rem',color:'var(--text-2)',flex:1}}>
-                {c.subject?.slice(0,12)}… {c.action==='DELEGATE'?`→ ${(c.delegate||'').slice(0,12)}…`:''} {c.dataset?`(dataset ${c.dataset})`:''} {c.filter?`filter: ${c.filter}`:''}
+              <span style={{fontSize:'0.75rem',color:'var(--text-2)',flex:1,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                <Addr addr={c.subject} short={12} onToast={toast} />
+                {c.action==='DELEGATE' && <>→ <Addr addr={c.delegate} short={12} onToast={toast} /></>}
+                {c.dataset && <span style={{color:'var(--text-muted)'}}>dataset {c.dataset}</span>}
+                {c.filter && <code style={{background:'var(--bg-warm)',padding:'1px 4px',borderRadius:3}}>{c.filter}</code>}
               </span>
               <span className="hash" style={{fontSize:'0.62rem',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis'}}>{c.hash?.slice(0,24)}…</span>
               {isSubject && c.action === 'DELEGATE' && <button className="btn btn-sm btn-red" onClick={()=>revoke(c.delegate,c.dataset)}>Revoke</button>}
@@ -1016,7 +1111,7 @@ function SSIPage({ datasets, user, role, toast, refresh }) {
 // ════════════════════════════════════════════════════
 // AUDIT TRAIL
 // ════════════════════════════════════════════════════
-function AuditPage({ queryLogs }) {
+function AuditPage({ queryLogs, toast }) {
   return (
     <div>
       <div className="ph"><h2>Audit Trail</h2><p>Every query produces an on-chain attestation: H(query ‖ result ‖ merkle_root ‖ timestamp).</p></div>
@@ -1027,7 +1122,7 @@ function AuditPage({ queryLogs }) {
             <tbody>{queryLogs.slice().reverse().map(l => (
               <tr key={l.id}>
                 <td style={{fontWeight:700}}>{l.id}</td>
-                <td style={{fontFamily:'var(--font-m)',fontSize:'0.72rem'}}>{l.querier?.slice(0,14)}…</td>
+                <td><Addr addr={l.querier} short={10} onToast={toast} /></td>
                 <td>{l.datasetId}</td>
                 <td><span className={`badge ${l.compliancePassed?'badge-green':'badge-red'}`}>{l.compliancePassed?'Pass':'Fail'}</span></td>
                 <td><span className="hash" style={{fontSize:'0.65rem'}}>{l.queryHash?.slice(0,20)}…</span></td>

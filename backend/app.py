@@ -543,9 +543,45 @@ def _file_hash(filepath):
         for chunk in iter(lambda: f.read(8192), b""): h.update(chunk)
     return h.hexdigest()
 
+def _ocr_image(filepath):
+    """Best-effort OCR. Returns extracted text or None if OCR unavailable."""
+    try:
+        import pytesseract
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        return pytesseract.image_to_string(Image.open(filepath)) or ""
+    except Exception as e:
+        log.debug(f"OCR failed on {filepath}: {e}")
+        return ""
+
+def _ocr_pdf(filepath):
+    """OCR a scanned PDF page-by-page. Returns text or None if unavailable."""
+    try:
+        import pytesseract
+        from pdf2image import convert_from_path
+    except ImportError:
+        return None
+    try:
+        pages = convert_from_path(filepath, dpi=200)
+        return "\n".join(pytesseract.image_to_string(p) or "" for p in pages)
+    except Exception as e:
+        log.debug(f"PDF OCR failed on {filepath}: {e}")
+        return ""
+
 def _extract_text(filepath, ext):
+    """Extract text with a graceful cascade of fallbacks.
+
+    The goal is that a document is ALWAYS queryable after ingestion, even
+    when the extractor can produce nothing. Empty/unreadable docs get a
+    descriptive placeholder so WHERE clauses still match something rather
+    than silently losing the row.
+    """
+    def _placeholder(reason):
+        return f"[V-Lake: no text extractable from {ext.upper()} file  -  {reason}. Document is still ingested, Merkle-committed, and access-controlled.]"
+
     if ext == "pdf":
-        # Prefer pypdf (maintained); fall back to PyPDF2 if only legacy is available.
         reader_cls = None
         try:
             from pypdf import PdfReader as reader_cls  # type: ignore
@@ -553,28 +589,48 @@ def _extract_text(filepath, ext):
             try:
                 from PyPDF2 import PdfReader as reader_cls  # type: ignore
             except ImportError:
-                return "[PDF extraction unavailable: pip install pypdf]"
-        try:
-            text = "\n".join((p.extract_text() or "") for p in reader_cls(filepath).pages)
-            if text.strip():
-                return text[:50000]
-            return "[PDF contains no extractable text - likely scanned. Add OCR (pytesseract+pdf2image) for images.]"
-        except Exception as e:
-            return f"[PDF extraction error: {e}]"
-    elif ext == "txt":
+                reader_cls = None
+        text = ""
+        if reader_cls is not None:
+            try:
+                text = "\n".join((p.extract_text() or "") for p in reader_cls(filepath).pages)
+            except Exception as e:
+                log.debug(f"PDF text extract raised {e}; will try OCR")
+        if text.strip():
+            return text[:50000]
+        # Fallback 1: OCR (scanned PDF)
+        ocr = _ocr_pdf(filepath)
+        if ocr and ocr.strip():
+            return ("[OCR-extracted]\n" + ocr)[:50000]
+        if ocr is None:
+            return _placeholder("OCR unavailable (install pytesseract + pdf2image + poppler)")
+        return _placeholder("PDF had no text and OCR found nothing")
+
+    if ext == "txt":
         try:
             with open(filepath,"r",errors="replace") as f: return f.read()[:50000]
-        except: return "[read error]"
-    elif ext in ("png","jpg","jpeg"):
-        return f"[Image: {ext.upper()}  -  install pytesseract for OCR]"
-    elif ext == "docx":
+        except Exception as e:
+            return _placeholder(f"read error: {e}")
+
+    if ext in ("png","jpg","jpeg","tiff","bmp"):
+        ocr = _ocr_image(filepath)
+        if ocr is None:
+            return _placeholder(f"OCR unavailable for image (install pytesseract + Pillow)")
+        if ocr.strip():
+            return ("[OCR-extracted]\n" + ocr)[:50000]
+        return _placeholder("OCR found no text in image")
+
+    if ext == "docx":
         try:
             import zipfile, xml.etree.ElementTree as ET
             with zipfile.ZipFile(filepath) as z:
                 with z.open("word/document.xml") as f: tree = ET.parse(f)
-            return "\n".join(t.text for t in tree.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t") if t.text)
-        except: return "[DOCX extraction error]"
-    return "[No extractor for this type]"
+            text = "\n".join(t.text for t in tree.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t") if t.text)
+            return text[:50000] if text.strip() else _placeholder("DOCX had no text")
+        except Exception as e:
+            return _placeholder(f"DOCX parse error: {e}")
+
+    return _placeholder(f"no extractor for .{ext}")
 
 def ingest_document(did, filepath, filename, ext, caller, patient_id="", tags=""):
     doc_id = f"DOC-{uuid.uuid4().hex[:8].upper()}"
@@ -609,6 +665,21 @@ def register_documents(did, docs, tbl):
 # ═══════════════════════════════════════════════════════════
 # C1. DOMAIN-SEPARATED MERKLE TREE
 # ═══════════════════════════════════════════════════════════
+_ADDR_RE = re.compile(r'^0x[0-9a-fA-F]{40}$')
+
+def _norm_addr(a):
+    """Return a lowercased, validated 0x-prefixed 40-hex-digit address, or None.
+
+    Callers that must reject invalid input should check for None and return
+    a 400. This stops truncated / mistyped addresses from entering state
+    (e.g. a grant keyed on '0x777777777777777777' that can never be
+    referenced again).
+    """
+    if not a or not isinstance(a, str):
+        return None
+    s = a.strip().lower()
+    return s if _ADDR_RE.match(s) else None
+
 def sha256(data):
     if isinstance(data, str): data = data.encode("utf-8")
     return hashlib.sha256(data).hexdigest()
@@ -1461,12 +1532,20 @@ def list_proposals():
 
 @app.route("/api/proposals", methods=["POST"])
 def create_proposal():
-    d=request.json; pid,p=_make_proposal(d.get("type",""),d.get("proposer","").lower(),d.get("datasetId",""),d.get("target","").lower(),d.get("metadata","{}"))
+    d=request.json
+    proposer = _norm_addr(d.get("proposer",""))
+    target   = _norm_addr(d.get("target",""))
+    if not proposer or not target:
+        return jsonify({"error":"proposer and target must be valid 0x-prefixed 40-hex-digit addresses"}),400
+    pid,p=_make_proposal(d.get("type",""),proposer,d.get("datasetId",""),target,d.get("metadata","{}"))
     return jsonify({"success":True,"proposalId":pid,"proposal":p})
 
 @app.route("/api/proposals/<pid>/vote", methods=["POST"])
 def vote_proposal(pid):
-    d=request.json; voter=d.get("voter","").lower(); approve=d.get("approve",True)
+    d=request.json
+    voter = _norm_addr(d.get("voter",""))
+    if not voter: return jsonify({"error":"voter must be a valid 0x-prefixed 40-hex-digit address"}),400
+    approve=d.get("approve",True)
     if pid not in S["proposals"]: return jsonify({"error":"Not found"}),404
     p=S["proposals"][pid]
     if p["status"]!="PENDING": return jsonify({"error":"Not pending"}),400
@@ -1586,7 +1665,10 @@ def cross_query():
 # ─── SSI ───
 @app.route("/api/subjects/link", methods=["POST"])
 def link_subject():
-    d=request.json; c=d.get("caller","").lower(); subj=d.get("subject","").lower()
+    d=request.json
+    c = _norm_addr(d.get("caller",""))
+    subj = _norm_addr(d.get("subject",""))
+    if not c or not subj: return jsonify({"error":"caller and subject must be valid 0x-prefixed 40-hex-digit addresses"}),400
     did=d.get("datasetId",""); filt=d.get("recordFilter","")
     if not S["stewards"].get(c) and c not in S["custodians"].get(did,[]): return jsonify({"error":"Unauthorized"}),403
     S["subjects"].setdefault(subj,{"datasets":{}})["datasets"][did]=filt
@@ -1597,7 +1679,10 @@ def link_subject():
 
 @app.route("/api/subjects/delegate", methods=["POST"])
 def delegate_access():
-    d=request.json; subj=d.get("subject","").lower(); dlg=d.get("delegate","").lower()
+    d=request.json
+    subj = _norm_addr(d.get("subject",""))
+    dlg = _norm_addr(d.get("delegate",""))
+    if not subj or not dlg: return jsonify({"error":"subject and delegate must be valid 0x-prefixed 40-hex-digit addresses"}),400
     did=d.get("datasetId",""); scope=d.get("scope",""); dur=d.get("durationSecs",86400)
     if S["roles"].get(subj)!="SUBJECT": return jsonify({"error":"Only subjects can delegate"}),403
     sf=S["subjects"].get(subj,{}).get("datasets",{}).get(did,"")
@@ -1610,8 +1695,12 @@ def delegate_access():
 
 @app.route("/api/subjects/revoke-delegation", methods=["POST"])
 def revoke_delegation():
-    d=request.json; subj=d.get("subject",d.get("caller","")).lower(); dlg=d.get("delegate","").lower(); did=d.get("datasetId","")
-    g=S["grants"].get(dlg,{}); 
+    d=request.json
+    subj = _norm_addr(d.get("subject", d.get("caller","")))
+    dlg  = _norm_addr(d.get("delegate",""))
+    if not subj or not dlg: return jsonify({"error":"subject and delegate must be valid 0x-prefixed 40-hex-digit addresses"}),400
+    did=d.get("datasetId","")
+    g=S["grants"].get(dlg,{});
     if did in g: g[did]["active"]=False
     cache_inv(dlg,did)
     ch=_append_consent({"subject":subj,"action":"REVOKE","delegate":dlg,"dataset":did,"timestamp":int(time.time())})
@@ -1760,6 +1849,135 @@ def cache_stats():
     return jsonify({"stats":_cache_stats,"entries":entries,"ttl":GRANT_CACHE_TTL,"backend":backend})
 
 
+
+
+# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════
+# SAMPLES: bundled demo files for click-to-ingest UX
+# ═══════════════════════════════════════════════════════════
+# The `samples/` directory at the repo root ships representative
+# clinical-trial data (structured + unstructured). The endpoints
+# below let the frontend list what's bundled and trigger an
+# ingest into a target dataset without the user having to upload
+# anything by hand.
+
+SAMPLES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "samples"))
+
+_SAMPLE_META = {
+    "enrollment_patients.csv": {"kind": "structured", "ext": "csv", "suggest_dataset": "trial_enrollment",
+                                "desc": "8 trial participants with demographics, consent, and enrollment date."},
+    "lab_results.csv":          {"kind": "structured", "ext": "csv", "suggest_dataset": "lab_results",
+                                 "desc": "Blood-work panels across participants  -  glucose, HbA1c, lipids."},
+    "adverse_events.json":      {"kind": "stream",     "ext": "json", "suggest_dataset": "adverse_events",
+                                 "desc": "Adverse-event reports with severity, causality, outcome."},
+    "vitals.json":              {"kind": "stream",     "ext": "json", "suggest_dataset": "vitals_stream",
+                                 "desc": "Device telemetry: heart rate, BP, SpO2 readings."},
+    "consent_form.pdf":         {"kind": "document",   "ext": "pdf",  "suggest_dataset": "imaging_reports",
+                                 "desc": "Signed informed-consent form (text-heavy PDF)."},
+    "radiology_report.txt":     {"kind": "document",   "ext": "txt",  "suggest_dataset": "imaging_reports",
+                                 "desc": "Radiology read for a chest CT  -  free text."},
+    "scan_image.png":           {"kind": "document",   "ext": "png",  "suggest_dataset": "imaging_reports",
+                                 "desc": "Sample imaging artefact  -  exercises OCR fallback path."},
+}
+
+@app.route("/api/samples")
+def list_samples():
+    """List bundled sample files with metadata."""
+    out = []
+    for name, meta in _SAMPLE_META.items():
+        p = os.path.join(SAMPLES_DIR, name)
+        out.append({
+            "name": name,
+            "exists": os.path.exists(p),
+            "size": os.path.getsize(p) if os.path.exists(p) else 0,
+            **meta,
+        })
+    return jsonify({"samplesDir": SAMPLES_DIR, "samples": out})
+
+@app.route("/api/samples/<name>")
+def describe_sample(name):
+    """Preview a sample (first 2KB) so the UI can show what it will ingest."""
+    if name not in _SAMPLE_META:
+        return jsonify({"error": "unknown sample"}), 404
+    p = os.path.join(SAMPLES_DIR, name)
+    if not os.path.exists(p):
+        return jsonify({"error": "sample not found on disk"}), 404
+    meta = _SAMPLE_META[name].copy()
+    meta["name"] = name
+    meta["size"] = os.path.getsize(p)
+    if meta["kind"] != "document" or meta["ext"] in ("txt",):
+        try:
+            with open(p, "rb") as f:
+                data = f.read(2048)
+            meta["preview"] = data.decode("utf-8", errors="replace")
+        except Exception as e:
+            meta["preview"] = f"[preview error: {e}]"
+    return jsonify(meta)
+
+@app.route("/api/samples/ingest", methods=["POST"])
+def ingest_sample():
+    """Ingest a bundled sample into a target dataset.
+
+    Dispatch by `kind`:
+      structured -> ingest_upload path (CSV/Parquet into DuckDB table)
+      stream     -> ingest_stream path (JSON array of records)
+      document   -> ingest_document path (extract text + store encrypted)
+    """
+    d = request.json or {}
+    name = d.get("sample", "")
+    did  = str(d.get("datasetId", ""))
+    caller = _norm_addr(d.get("caller", ""))
+    if name not in _SAMPLE_META:
+        return jsonify({"error": "unknown sample"}), 400
+    if not did or did not in S["datasets"]:
+        return jsonify({"error": "valid datasetId required"}), 400
+    if not caller:
+        return jsonify({"error": "caller must be a valid 0x address"}), 400
+    if not _can_ingest(caller, did):
+        return jsonify({"error": "Unauthorized  -  custodians (or boot steward) only"}), 403
+    p = os.path.join(SAMPLES_DIR, name)
+    if not os.path.exists(p):
+        return jsonify({"error": "sample not found on disk"}), 404
+    meta = _SAMPLE_META[name]
+    tbl = S["datasets"][did]["name"].replace(" ", "_").lower()
+    try:
+        if meta["kind"] == "structured":
+            ext = meta["ext"]
+            if ext == "csv":
+                duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_csv_auto(\'{p}\')')
+            elif ext == "parquet":
+                duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_parquet(\'{p}\')')
+            elif ext == "json":
+                duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_json_auto(\'{p}\')')
+            _register(did, tbl, "LOCAL_FILE", p)
+            root, rc = _post_ingest(did, tbl)
+            return jsonify({"success": True, "kind": "structured", "rowCount": rc,
+                            "merkleRoot": root, "sample": name})
+        elif meta["kind"] == "stream":
+            with open(p, "r", encoding="utf-8") as f:
+                records = json.load(f)
+            if not isinstance(records, list):
+                return jsonify({"error": "stream sample must be a JSON array"}), 400
+            path = os.path.join(DATA_DIR, f"stream_{tbl}.json")
+            with open(path, "w") as f: json.dump(records, f, default=str)
+            duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_json_auto(\'{path}\')')
+            _register(did, tbl, "KAFKA", f"file://{path}")
+            root, rc = _post_ingest(did, tbl)
+            return jsonify({"success": True, "kind": "stream", "rowCount": rc,
+                            "merkleRoot": root, "sample": name})
+        elif meta["kind"] == "document":
+            doc = ingest_document(did, p, name, meta["ext"], caller)
+            schema, _ = register_documents(did, [doc], tbl)
+            root, rc = _post_ingest(did, tbl)
+            return jsonify({"success": True, "kind": "document", "rowCount": rc,
+                            "merkleRoot": root, "sample": name, "docId": doc["doc_id"],
+                            "extractedTextLength": len(doc.get("extracted_text", "")),
+                            "extractedPreview": doc.get("extracted_text", "")[:400]})
+        else:
+            return jsonify({"error": f"unknown kind {meta['kind']}"}), 500
+    except Exception as e:
+        log.exception(f"sample ingest failed: {name}")
+        return jsonify({"error": f"ingest failed: {e}"}), 500
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1928,7 +2146,16 @@ def demo_steps(): return jsonify({"steps":DEMO_STEPS,"currentStep":S["demo_step"
 @app.route("/api/demo/reset", methods=["POST"])
 def demo_reset():
     global _merkle_cache, _grant_cache, _cache_stats, _dataset_policies
-    S.update({"datasets":{},"dataset_seq":0,"custodians":{},"analysts":{},"grants":{},"proposals":{},"proposal_seq":0,"votes":{},"subjects":{},"query_logs":[],"attestations":[],"merkle_roots":{},"ssi_consents":[],"ssi_did_registry":{},"data_sources":{},"demo_step":0})
+    # Full wipe, including stewards and roles. Previously we kept the
+    # stewards dict populated, which meant deploy-registered stewards
+    # (3) stacked on top of the demo's own 3 on every reset, producing
+    # 6 stewards and breaking WQG quorum math (all_stew checks expected
+    # all 6 to vote but the demo only votes with 3).
+    S.update({"datasets":{},"dataset_seq":0,"stewards":{},"roles":{},
+              "custodians":{},"analysts":{},"grants":{},"proposals":{},
+              "proposal_seq":0,"votes":{},"subjects":{},"query_logs":[],
+              "attestations":[],"merkle_roots":{},"ssi_consents":[],
+              "ssi_did_registry":{},"data_sources":{},"demo_step":0})
     for a in [STEWARD1,STEWARD2,STEWARD3]: S["stewards"][a]=True; S["roles"][a]="DATA_STEWARD"
     _merkle_cache={}; _grant_cache={}; _cache_stats={"hits":0,"misses":0,"invalidations":0}; _dataset_policies={}
     try:

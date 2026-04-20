@@ -128,6 +128,10 @@ services:
       # by the container after `docker compose up -d backend --force-recreate`
       # (no image rebuild required).
       - ./backend/contract_abi.json:/app/contract_abi.json:ro
+      # Bundled demo-sample files so the UI's "Sample Files" panel can
+      # click-to-ingest them. app.py computes SAMPLES_DIR relative to
+      # /app/app.py, so this mount lands at /samples.
+      - ./samples:/samples:ro
     depends_on:
       postgres: { condition: service_healthy }
       minio: { condition: service_healthy }

@@ -9,3 +9,12 @@ web3
 eth-account
 pypdf>=4.0.0
 cryptography>=42.0.0
+
+# OCR fallback for scanned PDFs and images.
+# The Python libs are cheap; the corresponding system packages are
+# `tesseract-ocr` and `poppler-utils`. If neither is installed the
+# extractor falls back to a descriptive placeholder  -  the document
+# is still ingested, Merkle-committed, and access-controlled.
+pytesseract
+Pillow
+pdf2image

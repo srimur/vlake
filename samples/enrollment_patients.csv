@@ -1,0 +1,9 @@
+patient_id,participant_name,age,gender,blood_type,contact_phone,contact_email,site,arm,enrollment_date
+P0001,John Doe,52,M,A+,+1-555-0101,john.doe@example.org,City Hospital,treatment,2025-11-02
+P0002,Jane Smith,38,F,O-,+1-555-0102,jane.smith@example.org,City Hospital,placebo,2025-11-03
+P0003,Miguel Alvarez,61,M,B+,+1-555-0103,miguel.a@example.org,Riverside Clinic,treatment,2025-11-05
+P0004,Yuki Tanaka,44,F,AB+,+1-555-0104,yuki.t@example.org,Riverside Clinic,treatment,2025-11-06
+P0005,Priya Sharma,29,F,A-,+1-555-0105,priya.s@example.org,Metro Medical,placebo,2025-11-07
+P0006,Robert King,70,M,O+,+1-555-0106,robert.k@example.org,Metro Medical,treatment,2025-11-09
+P0007,Amelia Brown,55,F,B-,+1-555-0107,amelia.b@example.org,City Hospital,placebo,2025-11-10
+P0008,Hassan Karimi,47,M,A+,+1-555-0108,hassan.k@example.org,Riverside Clinic,treatment,2025-11-12

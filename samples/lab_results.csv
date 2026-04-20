@@ -1,0 +1,13 @@
+lab_id,patient_id,test_name,value,unit,reference_low,reference_high,collected_at
+L0001,P0001,glucose_fasting,126,mg/dL,70,99,2025-11-10T08:12:00
+L0002,P0001,hba1c,7.2,percent,4.0,5.6,2025-11-10T08:12:00
+L0003,P0002,glucose_fasting,94,mg/dL,70,99,2025-11-10T08:30:00
+L0004,P0002,hba1c,5.4,percent,4.0,5.6,2025-11-10T08:30:00
+L0005,P0003,glucose_fasting,182,mg/dL,70,99,2025-11-11T09:15:00
+L0006,P0003,hba1c,8.1,percent,4.0,5.6,2025-11-11T09:15:00
+L0007,P0004,ldl_cholesterol,138,mg/dL,0,100,2025-11-11T09:45:00
+L0008,P0005,ldl_cholesterol,92,mg/dL,0,100,2025-11-12T08:00:00
+L0009,P0006,glucose_fasting,140,mg/dL,70,99,2025-11-12T08:30:00
+L0010,P0007,hdl_cholesterol,58,mg/dL,40,100,2025-11-13T08:15:00
+L0011,P0008,glucose_fasting,101,mg/dL,70,99,2025-11-13T09:00:00
+L0012,P0001,ldl_cholesterol,145,mg/dL,0,100,2025-11-14T08:00:00

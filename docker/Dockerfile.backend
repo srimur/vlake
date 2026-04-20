@@ -3,8 +3,11 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # System deps
+# - curl / gcc / g++    : build tools for native Python wheels
+# - tesseract-ocr       : engine for OCR fallback on scanned PDFs + images
+# - poppler-utils       : pdftoppm etc, used by pdf2image for scanned PDFs
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl gcc g++ && rm -rf /var/lib/apt/lists/*
+    curl gcc g++ tesseract-ocr poppler-utils && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
