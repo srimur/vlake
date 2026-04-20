@@ -12,8 +12,13 @@ injection, and OCR working on real data.
 | `adverse_events.json` | Stream | `adverse_events` | Paste into JSON Stream tab, or upload as a file |
 | `vitals.json` | Stream | `vitals_stream` | Device telemetry readings |
 | `consent_form.pdf` | Document | `imaging_reports` | Text-heavy PDF, pypdf extracts cleanly |
-| `radiology_report.txt` | Document | `imaging_reports` | Plain text, trivial extraction |
-| `scan_image.png` | Document | `imaging_reports` | Image-only — exercises the OCR fallback (pytesseract) |
+| `radiology_report.pdf` | Document | `imaging_reports` | Text-heavy PDF  -  chest-CT read |
+| `scan_image.png` | Document | `imaging_reports` | Scanned / faxed report  -  exercises the OCR fallback |
+
+In real clinical workflows, structured patient data (registration, labs,
+vitals) travels as CSV or JSON extracts, but **reports** -  radiology,
+pathology, discharge, consent  -  almost always arrive as PDF or as a
+scanned image. The samples mirror that split.
 
 ## Regenerating the binaries
 

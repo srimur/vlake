@@ -1,8 +1,14 @@
-"""Regenerate the binary sample files (consent_form.pdf, scan_image.png).
+"""Regenerate the binary sample files.
 
-Run this once after cloning to produce the two binary demo files, which
-we deliberately do not check into git. The textual samples (CSV, JSON,
-TXT) are shipped directly.
+Produces:
+  consent_form.pdf      -  text-heavy informed-consent PDF
+  radiology_report.pdf  -  text-heavy radiology-read PDF
+  scan_image.png        -  image-only "scanned" report (exercises OCR path)
+
+Clinical documents are almost never distributed as .txt. Reports that
+reach a data lake come in as PDFs (most) or images (scanned / faxed).
+Only tabular patient data -  registration, lab-result extracts, vitals
+-  arrive as CSV or JSON.
 """
 import os
 from pathlib import Path
@@ -55,6 +61,54 @@ def make_pdf():
     c.save()
     print(f"[ok] {out}  ({out.stat().st_size} bytes)")
 
+def make_radiology_pdf():
+    from reportlab.pdfgen.canvas import Canvas
+    from reportlab.lib.pagesizes import letter
+    out = SAMPLES / "radiology_report.pdf"
+    c = Canvas(str(out), pagesize=letter)
+    W, H = letter
+    y = H - 72
+    def line(s, size=11, gap=15, bold=False):
+        nonlocal y
+        c.setFont("Helvetica-Bold" if bold else "Helvetica", size)
+        c.drawString(72, y, s)
+        y -= gap
+    line("RADIOLOGY REPORT  -  Chest CT with Contrast", size=14, gap=24, bold=True)
+    line("City Hospital Imaging Department", size=11, gap=18)
+    line("Patient ID:    P0003", bold=True)
+    line("Patient:       Miguel Alvarez   (age 61, M)")
+    line("Date of Exam:  2025-11-15")
+    line("Ordering MD:   Dr. A. Williams")
+    line("Protocol:      CT thorax, IV iodinated contrast, axial 2.5 mm")
+    y -= 10
+    line("CLINICAL HISTORY", size=12, bold=True)
+    for s in [
+        "61-year-old male, enrolled in diabetes-intervention trial,",
+        "presenting with persistent dry cough for 3 weeks.",
+        "Evaluate for parenchymal disease.",
+    ]: line(s)
+    y -= 8
+    line("FINDINGS", size=12, bold=True)
+    for s in [
+        "Lungs are clear bilaterally without consolidation, mass, or effusion.",
+        "No evidence of pulmonary embolism on contrast-enhanced images.",
+        "Hilar and mediastinal lymph nodes are within normal limits (<10 mm).",
+        "Heart size is normal. No pericardial effusion.",
+        "Visualised upper abdomen: hepatic steatosis, mild.",
+        "Osseous structures: degenerative changes of the thoracic spine.",
+    ]: line(s)
+    y -= 8
+    line("IMPRESSION", size=12, bold=True)
+    for s in [
+        "1. No acute intrathoracic abnormality. Negative for PE.",
+        "2. Incidental hepatic steatosis  -  correlate clinically.",
+        "3. Degenerative changes of the thoracic spine.",
+    ]: line(s)
+    y -= 16
+    line("Electronically signed: Dr. A. Williams, MD  -  2025-11-15 14:32 UTC")
+    c.save()
+    print(f"[ok] {out}  ({out.stat().st_size} bytes)")
+
 def make_png():
     from PIL import Image, ImageDraw, ImageFont
     out = SAMPLES / "scan_image.png"
@@ -80,4 +134,5 @@ def make_png():
 
 if __name__ == "__main__":
     make_pdf()
+    make_radiology_pdf()
     make_png()

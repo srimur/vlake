@@ -1874,10 +1874,10 @@ _SAMPLE_META = {
                                  "desc": "Device telemetry: heart rate, BP, SpO2 readings."},
     "consent_form.pdf":         {"kind": "document",   "ext": "pdf",  "suggest_dataset": "imaging_reports",
                                  "desc": "Signed informed-consent form (text-heavy PDF)."},
-    "radiology_report.txt":     {"kind": "document",   "ext": "txt",  "suggest_dataset": "imaging_reports",
-                                 "desc": "Radiology read for a chest CT  -  free text."},
+    "radiology_report.pdf":     {"kind": "document",   "ext": "pdf",  "suggest_dataset": "imaging_reports",
+                                 "desc": "Chest-CT radiology read as a PDF (text-heavy)."},
     "scan_image.png":           {"kind": "document",   "ext": "png",  "suggest_dataset": "imaging_reports",
-                                 "desc": "Sample imaging artefact  -  exercises OCR fallback path."},
+                                 "desc": "Scanned / faxed report image  -  exercises OCR fallback path."},
 }
 
 @app.route("/api/samples")
