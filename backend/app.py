@@ -51,6 +51,60 @@ def handle_preflight():
 
 
 # ═══════════════════════════════════════════════════════════
+# DEPLOYMENT AUTO-DETECT
+# ═══════════════════════════════════════════════════════════
+# The backend runs in two shapes:
+#   (1) inside the vlake-backend Docker container, where every sibling
+#       service is reachable by its compose-service name (minio, postgres,
+#       mongodb, kafka, besu-node1) on internal ports
+#   (2) on the Windows/Linux/macOS host directly (e.g. `python backend/app.py`
+#       for development), where those names do NOT resolve but the same
+#       services are exposed on localhost via docker-compose port mappings
+#
+# When docker-compose runs the container it already injects the correct
+# env vars, so our defaults only kick in when they're unset. We pick the
+# set that matches the current environment so `python backend/app.py` on
+# the host Just Works as long as `docker compose up -d` is running.
+# ═══════════════════════════════════════════════════════════
+
+def _in_docker_container():
+    # The kernel mounts /.dockerenv inside any Docker container. Fall back
+    # to a hint env var for non-standard runtimes (Podman, etc.) where a
+    # user can set IN_DOCKER=1 to force Docker-style defaults.
+    return os.path.exists("/.dockerenv") or os.getenv("IN_DOCKER") == "1"
+
+_SERVICE_DEFAULTS_DOCKER = {
+    "MINIO_ENDPOINT": "minio:9000",
+    "POSTGRES_HOST":  "postgres",
+    "KAFKA_BROKER":   "kafka:9092",
+    "MONGO_URI":      "mongodb://mongodb:27017",
+    "BESU_RPC":       "http://besu-node1:8545",
+}
+_SERVICE_DEFAULTS_HOST = {
+    "MINIO_ENDPOINT": "localhost:9000",
+    "POSTGRES_HOST":  "localhost",
+    "KAFKA_BROKER":   "localhost:9093",       # external listener port
+    "MONGO_URI":      "mongodb://localhost:27017",
+    "BESU_RPC":       "http://localhost:8545",
+}
+for _k, _v in (_SERVICE_DEFAULTS_DOCKER if _in_docker_container() else _SERVICE_DEFAULTS_HOST).items():
+    os.environ.setdefault(_k, _v)
+# If .env at the repo root carries a deployed CONTRACT_ADDRESS, pick it up
+# too when running on the host (docker-compose already injects it inside
+# the container via the `environment:` block).
+if not _in_docker_container() and not os.getenv("CONTRACT_ADDRESS"):
+    _env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+    if os.path.exists(_env_path):
+        try:
+            with open(_env_path) as _f:
+                for _line in _f:
+                    if _line.startswith("CONTRACT_ADDRESS="):
+                        os.environ.setdefault("CONTRACT_ADDRESS", _line.split("=",1)[1].strip())
+                        break
+        except Exception:
+            pass
+
+# ═══════════════════════════════════════════════════════════
 # BLOCKCHAIN INTEGRATION LAYER
 # ═══════════════════════════════════════════════════════════
 # The in-memory state S is a CACHE. When Besu is available,
@@ -2562,4 +2616,11 @@ if __name__=="__main__":
     log.info("V-Lake Backend (Multi-Site Clinical Trial demo)")
     log.info("  Roles: Steward(3), Custodian(2), Analyst(1), Subject(0)  -  Shapley-derived")
     log.info(f"  Sources: {len(DATA_SOURCE_TYPES)} types + document ingestion")
-    app.run(host="0.0.0.0",port=5000,debug=True)
+    # Default port = 5000 inside the container. When running on the host
+    # the containerised backend already occupies 5000, so we shift to 5001
+    # by default; override with VLAKE_PORT if you want something else.
+    _default_port = 5000 if _in_docker_container() else 5001
+    _port = int(os.getenv("VLAKE_PORT", _default_port))
+    log.info(f"V-Lake backend listening on 0.0.0.0:{_port} "
+             f"(in_docker={_in_docker_container()})")
+    app.run(host="0.0.0.0", port=_port, debug=True)
