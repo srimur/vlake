@@ -118,19 +118,37 @@ CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "")
 _w3 = None
 _contract = None
 _blockchain_available = False
+_signer = None  # (address, private_key) pair used to sign on-chain writes
+
+# Dev-mode signer: Besu in --network=dev does not expose unlocked accounts
+# via personal_unlockAccount, so `w3.eth.accounts` is empty and the naive
+# transact({"from": accounts[0]}) path raises "list index out of range".
+# We sign locally with Steward-1's private key, matching what
+# scripts/deploy_contract.py uses when deploying. Override with
+# VLAKE_SIGNER_KEY in any production deployment.
+_DEV_SIGNER_KEY = "0xae6ae8e5ccbfb04590405997ee2d52d2b330726137b875053c36d94e974d162f"
 
 def _init_blockchain():
     """Initialize web3 connection to Besu. Called at startup."""
-    global _w3, _contract, _blockchain_available
+    global _w3, _contract, _blockchain_available, _signer
     if not BESU_RPC:
         log.info("BESU_RPC not set  -  running in cache-only mode (NOT production-safe)")
         return
     try:
         from web3 import Web3
+        from eth_account import Account
         _w3 = Web3(Web3.HTTPProvider(BESU_RPC, request_kwargs={"timeout": 5}))
         if not _w3.is_connected():
             log.warning(f"Cannot connect to Besu at {BESU_RPC}")
             return
+        # Configure the local signer. Production deployments should inject a
+        # real private key via VLAKE_SIGNER_KEY; for the demo we fall back to
+        # Steward-1's deploy key so the governance-state transition story is
+        # self-consistent.
+        signer_key = os.getenv("VLAKE_SIGNER_KEY", _DEV_SIGNER_KEY)
+        signer_acct = Account.from_key(signer_key)
+        _signer = (signer_acct.address, signer_key)
+        log.info(f"On-chain signer: {signer_acct.address}")
         if CONTRACT_ADDRESS:
             abi_path = os.path.join(os.path.dirname(__file__), "contract_abi.json")
             if os.path.exists(abi_path):
@@ -181,13 +199,27 @@ def _write_to_chain(fn_name, *args):
         return None
     try:
         fn = getattr(_contract.functions, fn_name)
-        tx_hash = fn(*args).transact({"from": _w3.eth.accounts[0], "gas": 3000000})
+        # Build, sign locally, and submit. Besu dev-mode does not expose
+        # unlocked accounts via RPC, so the earlier transact({"from":
+        # accounts[0]}) path fails with "list index out of range".
+        signer_addr, signer_key = _signer
+        nonce = _w3.eth.get_transaction_count(signer_addr, "pending")
+        tx = fn(*args).build_transaction({
+            "from": signer_addr,
+            "nonce": nonce,
+            "gas": 3000000,
+            "gasPrice": 0,
+            "chainId": _w3.eth.chain_id,
+        })
+        signed = _w3.eth.account.sign_transaction(tx, signer_key)
+        tx_hash = _w3.eth.send_raw_transaction(signed.raw_transaction)
         receipt = _w3.eth.wait_for_transaction_receipt(tx_hash, timeout=10)
+        if receipt.status != 1:
+            raise RuntimeError(f"tx reverted (status={receipt.status})")
         log.info(f"On-chain: {fn_name} tx={tx_hash.hex()[:16]}... gas={receipt.gasUsed}")
         return tx_hash.hex()
     except Exception as e:
         log.warning(f"On-chain write failed for {fn_name}: {e}")
-        # Still persist locally
         log_path = os.path.join(DATA_DIR, "governance_audit_log.jsonl")
         with open(log_path, "a") as f:
             f.write(json.dumps({"fn": fn_name, "args": [str(a) for a in args], "t": int(time.time()), "error": str(e)}) + "\n")
@@ -506,7 +538,13 @@ def connect_source(did, src_type, config, tbl):
         return _register(did, tbl, "POSTGRESQL", f"{host}:{port}/{db}", {k:v for k,v in config.items() if k!="password"})
 
     elif src_type == "S3_MINIO":
-        # Real S3 connection via DuckDB httpfs
+        # Real MinIO connection via the minio python client. Previously we used
+        # DuckDB's httpfs extension which kept failing with "Error when sniffing
+        # file" because httpfs's S3-Signature path doesn't interoperate cleanly
+        # with MinIO's default anonymous-denied bucket policy. Downloading the
+        # objects to a temp file with the official MinIO client and then
+        # letting DuckDB read from local disk is equally "real" (we still hit
+        # the MinIO server) and has no signing ambiguity.
         ep=config.get("endpoint", os.getenv("MINIO_ENDPOINT","localhost:9000"))
         ak=config.get("access_key", os.getenv("MINIO_ACCESS_KEY","minioadmin"))
         sk=config.get("secret_key", os.getenv("MINIO_SECRET_KEY","minioadmin"))
@@ -514,16 +552,30 @@ def connect_source(did, src_type, config, tbl):
         pfx=config.get("path_prefix","enrollment/")
         fmt=config.get("file_format","csv")
         log.info(f"S3/MinIO: connecting to {ep} bucket={bkt} prefix={pfx}")
-        duck.execute(f"SET s3_endpoint='{ep.replace('http://','').replace('https://','')}';"
-                     f"SET s3_access_key_id='{ak}';SET s3_secret_access_key='{sk}';"
-                     f"SET s3_use_ssl=false;SET s3_url_style='path';")
-        s3p = f"s3://{bkt}/{pfx}"
+        from minio import Minio
+        mc = Minio(ep, access_key=ak, secret_key=sk, secure=False)
+        objects = [o for o in mc.list_objects(bkt, prefix=pfx, recursive=True)
+                   if o.object_name.endswith(f".{fmt}")]
+        if not objects:
+            raise RuntimeError(f"No .{fmt} objects found under s3://{bkt}/{pfx}")
+        tmp_dir = os.path.join(DATA_DIR, f"minio_{tbl}")
+        os.makedirs(tmp_dir, exist_ok=True)
+        local_paths = []
+        for obj in objects:
+            local = os.path.join(tmp_dir, os.path.basename(obj.object_name))
+            mc.fget_object(bkt, obj.object_name, local)
+            local_paths.append(local.replace("\\","/"))
+        log.info(f"S3/MinIO: downloaded {len(local_paths)} object(s) to {tmp_dir}")
+        # Use DuckDB glob over the downloaded files. read_csv_auto / read_json_auto /
+        # read_parquet handle the rest.
+        glob = os.path.join(tmp_dir, f"*.{fmt}").replace("\\","/")
         if fmt == "csv":
-            duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_csv_auto(\'{s3p}*.csv\')')
+            duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_csv_auto(\'{glob}\', header=true)')
         elif fmt == "json":
-            duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_json_auto(\'{s3p}*.json\')')
+            duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_json_auto(\'{glob}\')')
         else:
-            duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_parquet(\'{s3p}*.parquet\')')
+            duck.execute(f'CREATE OR REPLACE TABLE "{tbl}" AS SELECT * FROM read_parquet(\'{glob}\')')
+        s3p = f"s3://{bkt}/{pfx}"
         return _register(did, tbl, "S3_MINIO", s3p, {k:v for k,v in config.items() if k not in ("access_key","secret_key")})
 
     elif src_type == "KAFKA":
@@ -1179,14 +1231,16 @@ def _post_ingest(did, tbl):
                                "schemaJson":json.dumps(virtual_tables[did]["schema"])})
     S["merkle_roots"].setdefault(did,[]).append({"root":root,"leafCount":lc,"timestamp":int(time.time())})
     _merkle_cache[did]={"root":root,"tree":tree,"lc":lc,"ts":time.time()}
-    # Anchor on blockchain (or local audit log if Besu unavailable)
+    # Anchor on blockchain (or local audit log if Besu unavailable).
+    # There used to be a duplicate _try_anchor_on_chain call after this
+    # which sent the same recordIngestion a second time via a separate
+    # code path; we removed it because _anchor_merkle_root already does
+    # exactly one on-chain write via _write_to_chain.
     _anchor_merkle_root(did, root, rc, lc, len(tree) if tree else 0)
-    # S4 fix: Persist Merkle root to append-only log file (tamper-evident without blockchain)
+    # Persist Merkle root to append-only log file (tamper-evident without blockchain)
     log_path = os.path.join(DATA_DIR, "merkle_audit_log.jsonl")
     with open(log_path, "a") as mlog:
         mlog.write(json.dumps({"dataset":did,"root":root,"leafCount":lc,"rowCount":rc,"timestamp":int(time.time())}) + "\n")
-    # When Besu is available, anchor on-chain
-    _try_anchor_on_chain(did, root, rc, lc)
     return root, rc
 
 def _make_proposal(ptype, proposer, did, target, meta="{}"):
@@ -1958,20 +2012,27 @@ def cache_stats():
 SAMPLES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "samples"))
 
 _SAMPLE_META = {
-    "enrollment_patients.csv": {"kind": "structured", "ext": "csv", "suggest_dataset": "trial_enrollment",
+    # Administrative / registration data -> CSV (how it really arrives).
+    "enrollment_patients.csv": {"kind": "structured", "ext": "csv",  "suggest_dataset": "trial_enrollment",
                                 "desc": "8 trial participants with demographics, consent, and enrollment date."},
-    "lab_results.csv":          {"kind": "structured", "ext": "csv", "suggest_dataset": "lab_results",
-                                 "desc": "Blood-work panels across participants  -  glucose, HbA1c, lipids."},
-    "adverse_events.json":      {"kind": "stream",     "ext": "json", "suggest_dataset": "adverse_events",
-                                 "desc": "Adverse-event reports with severity, causality, outcome."},
-    "vitals.json":              {"kind": "stream",     "ext": "json", "suggest_dataset": "vitals_stream",
-                                 "desc": "Device telemetry: heart rate, BP, SpO2 readings."},
-    "consent_form.pdf":         {"kind": "document",   "ext": "pdf",  "suggest_dataset": "imaging_reports",
-                                 "desc": "Signed informed-consent form (text-heavy PDF)."},
-    "radiology_report.pdf":     {"kind": "document",   "ext": "pdf",  "suggest_dataset": "imaging_reports",
-                                 "desc": "Chest-CT radiology read as a PDF (text-heavy)."},
-    "scan_image.png":           {"kind": "document",   "ext": "png",  "suggest_dataset": "imaging_reports",
-                                 "desc": "Scanned / faxed report image  -  exercises OCR fallback path."},
+    # Streams -> JSON arrays (Kafka / IoT style).
+    "adverse_events.json":     {"kind": "stream",    "ext": "json", "suggest_dataset": "adverse_events",
+                                "desc": "Adverse-event reports with severity, causality, outcome."},
+    "vitals.json":             {"kind": "stream",    "ext": "json", "suggest_dataset": "vitals_stream",
+                                "desc": "Device telemetry: heart rate, BP, SpO2 readings."},
+    # Reports -> PDF or scanned image (how real clinical reports arrive).
+    "consent_form.pdf":        {"kind": "document",  "ext": "pdf",  "suggest_dataset": "imaging_reports",
+                                "desc": "Signed informed-consent form (text-heavy PDF)."},
+    "radiology_report.pdf":    {"kind": "document",  "ext": "pdf",  "suggest_dataset": "imaging_reports",
+                                "desc": "Chest-CT radiology read as a PDF (text-heavy)."},
+    "lab_report_P0001.pdf":    {"kind": "document",  "ext": "pdf",  "suggest_dataset": "lab_results",
+                                "desc": "Patient P0001 lab panel (diabetes intervention trial)."},
+    "lab_report_P0003.pdf":    {"kind": "document",  "ext": "pdf",  "suggest_dataset": "lab_results",
+                                "desc": "Patient P0003 lab panel."},
+    "lab_scan_P0005.png":      {"kind": "document",  "ext": "png",  "suggest_dataset": "lab_results",
+                                "desc": "Scanned lab report for P0005  -  exercises OCR fallback."},
+    "scan_image.png":          {"kind": "document",  "ext": "png",  "suggest_dataset": "imaging_reports",
+                                "desc": "Scanned / faxed radiology image  -  exercises OCR fallback."},
 }
 
 @app.route("/api/samples")

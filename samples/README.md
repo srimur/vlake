@@ -5,38 +5,44 @@ any file, drop it into the **Ingest Data** page (or stream the JSON ones
 via the JSON Stream tab), and you'll see Merkle roots, predicate
 injection, and OCR working on real data.
 
+Clinical data splits cleanly by format in the real world: administrative
+patient data is tabular (CSV), telemetry/streaming data is JSON, and
+**reports** — radiology, pathology, consent, lab panels — arrive as PDFs
+or as scanned images. The samples mirror that split exactly.
+
 | File | Kind | Suggested target dataset | Notes |
 |---|---|---|---|
-| `enrollment_patients.csv` | Structured | `trial_enrollment` | 8 rows, PHI columns (name, phone, email) trigger column encryption |
-| `lab_results.csv` | Structured | `lab_results` | 12 rows, glucose/HbA1c/lipid panels |
-| `adverse_events.json` | Stream | `adverse_events` | Paste into JSON Stream tab, or upload as a file |
-| `vitals.json` | Stream | `vitals_stream` | Device telemetry readings |
-| `consent_form.pdf` | Document | `imaging_reports` | Text-heavy PDF, pypdf extracts cleanly |
-| `radiology_report.pdf` | Document | `imaging_reports` | Text-heavy PDF  -  chest-CT read |
-| `scan_image.png` | Document | `imaging_reports` | Scanned / faxed report  -  exercises the OCR fallback |
-
-In real clinical workflows, structured patient data (registration, labs,
-vitals) travels as CSV or JSON extracts, but **reports** -  radiology,
-pathology, discharge, consent  -  almost always arrive as PDF or as a
-scanned image. The samples mirror that split.
+| `enrollment_patients.csv` | CSV | `trial_enrollment` | 8 rows, PHI columns trigger column encryption |
+| `adverse_events.json` | JSON stream | `adverse_events` | Paste into JSON Stream tab or upload as file |
+| `vitals.json` | JSON stream | `vitals_stream` | Device telemetry readings |
+| `consent_form.pdf` | PDF | `imaging_reports` | Informed-consent form, pypdf extracts cleanly |
+| `radiology_report.pdf` | PDF | `imaging_reports` | Chest-CT read, text-heavy |
+| `lab_report_P0001.pdf` | PDF | `lab_results` | Lab panel for P0001 |
+| `lab_report_P0003.pdf` | PDF | `lab_results` | Lab panel for P0003 |
+| `lab_scan_P0005.png` | PNG | `lab_results` | Scanned lab report — exercises OCR fallback |
+| `scan_image.png` | PNG | `imaging_reports` | Scanned radiology image — exercises OCR fallback |
 
 ## Regenerating the binaries
 
-The PDF and PNG are produced by `samples/_build_binaries.py`. Re-run it
-after cloning if they're not present:
+`_build_binaries.py` produces every PDF and PNG from scratch. Re-run
+it if you change the content or after cloning on a machine where the
+binaries weren't checked in:
 
 ```
 python samples/_build_binaries.py
 ```
 
+Requires `reportlab` and `Pillow` on the host, which come in via
+`pip install -r backend/requirements.txt`.
+
 ## What the OCR fallback does
 
-If a PDF has no extractable text (classic scanned document) or an image
-is uploaded, `_extract_text` tries pytesseract. If tesseract isn't
-installed on the host, or if it simply finds nothing, the file is still
-ingested — a descriptive placeholder is stored as the row's text, so
-the document remains Merkle-committed, access-controlled, and visible
-in the audit trail.
+When a PDF has no extractable text (classic scanned document) or you
+upload an image, `_extract_text` in the backend tries pytesseract. If
+tesseract isn't installed on the host, or if it simply finds nothing,
+the file is still ingested — a descriptive placeholder is stored as
+the row's text, so the document remains Merkle-committed,
+access-controlled, and visible in the audit trail.
 
 The Docker image (`docker/Dockerfile.backend`) installs `tesseract-ocr`
 and `poppler-utils` so the fallback works out of the box in the
