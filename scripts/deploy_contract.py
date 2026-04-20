@@ -370,7 +370,7 @@ def smoke_test(w3, abi, contract_address):
     # Check proposal was executed
     p = contract.functions.proposals(1).call()
     assert p[6] == 1, f"Proposal should be EXECUTED (1), got {p[6]}"
-    qc = p[19]  # quorumCertificate
+    qc = p[20]  # quorumCertificate (index 20 in the proposals struct)
     print(f"    ✓ Proposal EXECUTED — Quorum Certificate: {qc.hex()[:32]}...")
 
     # 5. Verify custodian was assigned
