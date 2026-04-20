@@ -560,6 +560,39 @@ distinguishes V-Lake's integrity layer from a plain Merkle log: the
 SQL that produced each answer---not only the stored rows---is part
 of the tamper-evident record.
 
+\subsection{Document Ciphertext Anchoring}
+
+The per-dataset Merkle root $\rho$ commits to the rows of a
+dataset's \emph{table} in the query engine, including extracted
+text and metadata for document uploads. It does \emph{not} by
+itself commit to the raw ciphertext object stored in the
+object-store backend (e.g., a MinIO bucket, S3, or IPFS). A rogue
+storage admin who swaps an object with different ciphertext of the
+same length leaves the Merkle root unchanged.
+
+We close this gap without a separate on-chain record and without
+changing the integrity-proof protocol: when a document $d$ is
+ingested, we compute
+$\kappa_d = \textsc{Sha256}(\text{ciphertext}(d))$
+and store $\kappa_d$ as an additional column
+(\texttt{ciphertext\_hash}) in the document row. Because $\kappa_d$
+is part of the row, it is part of the leaf hash
+$H_{\text{leaf}}(r, i)$ (Eq.~1), and therefore part of the
+anchored root $\rho$. At download time the server refetches the
+ciphertext, recomputes $\kappa'_d$, and refuses to decrypt when
+$\kappa'_d \neq \kappa_d$, logging the mismatch as a
+\texttt{CIPHERTEXT\_TAMPER\_DETECTED} audit event. The expected
+$\kappa_d$ ultimately traces to the on-chain root, so an attacker
+who tampers with both the storage object and the in-memory
+metadata is detected on any subsequent Merkle verification.
+
+The property this gives us is that object-store durability and
+object-store integrity become \emph{separable} concerns: the
+storage tier can be any addressable backend (MinIO, S3,
+erasure-coded cluster, IPFS pins) without affecting the integrity
+guarantee, because integrity is rooted in the chain, not the
+store.
+
 
 % ============================================================
 \section{C2: Weighted Quorum Governance}
@@ -1011,6 +1044,55 @@ the cache immediately.
 % ============================================================
 \section{Evaluation}
 \label{sec:eval}
+
+\subsection{Scope: Architecture vs.\ Prototype}
+\label{sec:arch-vs-prototype}
+
+Before presenting numbers we separate two layers that are easily
+conflated in this kind of work and that deserve independent
+scrutiny.
+
+\emph{The architecture} is the set of mechanisms described in
+\S\S\ref{sec:merkle}--\ref{sec:access}: domain-separated Merkle
+forest with forest root and per-query attestation chain, weighted
+quorum governance, DID-style consent chain, federated source
+registry, hybrid column encryption, ciphertext-hash anchoring.
+These are stated generally; they do not depend on any specific
+deployment topology and do not bake in a specific object store,
+key-management system, or blockchain validator set.
+
+\emph{The prototype} is the specific instantiation we built to
+measure the architecture: Flask backend + DuckDB query engine +
+single-node Hyperledger Besu (QBFT, dev-mode) + single-node MinIO
++ a disk-resident master key. It makes several simplifying
+assumptions that a production deployment would not make:
+
+\begin{enumerate}[leftmargin=*,topsep=3pt,itemsep=2pt]
+\item The Besu network is a single validator. The architecture
+  requires a 4+ validator QBFT cluster for real liveness against
+  validator failures. The prototype is sufficient to measure
+  round-trip latency with a real contract but is not a
+  highly-available ordering layer.
+\item The object store is a single-node MinIO. The architecture
+  is store-agnostic; the prototype is not fault-tolerant against
+  volume loss.
+\item The master key-encryption key lives in a file on disk. The
+  architecture requires an HSM- or KMS-backed KEK; the prototype
+  uses a local file so the demo works without external secret
+  management.
+\item The query engine is in-memory DuckDB. The architecture
+  commits to an SQL engine that honours predicate injection and
+  blind-index rewrites; the prototype uses DuckDB because its
+  extension model makes the federated registry tractable.
+\item Data volumes are small (8--50 rows per table at demo time)
+  because the prototype exists to demonstrate mechanism behaviour,
+  not peak throughput.
+\end{enumerate}
+
+Every reported number in \S\ref{sec:eval} describes the prototype.
+Claims that extend to the architecture in general are flagged
+explicitly.
+
 
 \subsection{Methodology}
 
@@ -1470,6 +1552,76 @@ configuration described.
   parameter.
 \end{enumerate}
 
+\subsection{Staged Storage-Integrity Hardening}
+\label{sec:stages}
+
+The prototype assumptions in \S\ref{sec:arch-vs-prototype} imply a
+production rollout path. Each stage below is orthogonal: a
+deployment can adopt them in the order that matches its risk
+profile. Stage A is already implemented in the prototype; Stages
+B--E are design commitments whose implementation is out of scope
+for this paper.
+
+\begin{itemize}[leftmargin=*,topsep=3pt,itemsep=3pt]
+
+\item \textbf{Stage A. Ciphertext content-addressing (done).}
+  The architecture is already store-agnostic because every
+  document row carries $\kappa_d = \textsc{Sha256}(\text{ciphertext}(d))$
+  and $\kappa_d$ is part of the Merkle leaf (\S\ref{sec:merkle}).
+  At download, the store is refetched, $\kappa'_d$ is recomputed,
+  and any mismatch with the on-chain-anchored $\kappa_d$ refuses
+  the decrypt and emits a \texttt{CIPHERTEXT\_TAMPER\_DETECTED}
+  audit event. This closes the \emph{silent object-swap} threat
+  without changing the integrity-proof protocol.
+
+\item \textbf{Stage B. Replicated object store.}
+  The prototype uses single-node MinIO. A production deployment
+  replaces this with a MinIO erasure-coded cluster (4+ nodes, RS
+  parity) or equivalent S3-class service. Because Stage A makes
+  integrity independent of the store, the replication layer needs
+  only to guarantee \emph{availability}---integrity verification
+  remains a property of the on-chain state.
+
+\item \textbf{Stage C. Decentralised object store (IPFS).}
+  Multi-organisation deployments where no single party should
+  hold the binaries benefit from a content-addressed, replicated
+  store such as IPFS with a per-organisation pin set or a
+  Filecoin-backed pinning service. The architectural interface
+  does not change: $\kappa_d$ is now both the on-chain-anchored
+  hash and the IPFS CID, collapsing two concepts into one. IPFS
+  does not substitute for encryption---ciphertext is still what is
+  published---and it introduces DHT-resolution latency that makes
+  it a better fit for long-term archival than interactive queries.
+  A hybrid deployment can keep MinIO for the hot path and IPFS
+  for cross-organisation replication and cold archive.
+
+\item \textbf{Stage D. HSM- or KMS-backed key management.}
+  The prototype stores the master KEK as a local file
+  (\texttt{backend/data/.master.key}) because the demo must work
+  without external secret infrastructure. Production requires an
+  HSM (FIPS 140-3 Level 3) or a managed KMS (HashiCorp Vault,
+  AWS KMS, GCP KMS) wrapping the KEK. Per-dataset DEKs remain
+  wrapped ciphertext in the existing \texttt{deks.json}; the only
+  change is that the wrap/unwrap call is delegated to the HSM/KMS.
+  This stage is load-bearing for any HIPAA Safe Harbor or
+  FIPS-aligned deployment.
+
+\item \textbf{Stage E. Multi-validator Besu.}
+  The prototype runs Besu in single-node dev-mode, which is
+  sufficient to measure real transaction round-trip latency but
+  is not a highly available ordering layer. Production QBFT
+  requires 4 validators to tolerate one Byzantine fault (or $3f+1$
+  for tolerance of $f$). This is a deployment-topology change
+  rather than an architectural change; the smart contract is
+  unchanged.
+
+\end{itemize}
+
+None of these stages alters the security argument, the weight
+derivation in Proposition~\ref{prop:unique}, or the frequency-leakage
+budget of the column-encryption scheme. They change what the
+prototype's numbers generalise to.
+
 
 % ============================================================
 \section{Conclusion}
@@ -1494,9 +1646,15 @@ column-encryption scheme with a documented frequency-leakage
 budget.
 
 We have been deliberate about what the paper does and does not
-claim. It does not claim a new cryptographic primitive, a formal
-security proof, regulatory certification, or generalisation beyond
-the prototype. It does claim that the composition is coherent, the
+claim, and about the split between architecture and prototype
+(\S\ref{sec:arch-vs-prototype}). The architecture is stated
+generally; the prototype makes explicit simplifying assumptions
+(single-validator chain, single-node object store, disk-resident
+KEK) that \S\ref{sec:stages} organises into a staged hardening
+plan, of which Stage A---ciphertext content-addressing with
+verify-on-download---is already implemented. The paper does not
+claim a new cryptographic primitive, a formal security proof,
+regulatory certification, or generalisation beyond the prototype. It does claim that the composition is coherent, the
 weight derivation is minimal and unique under the stated
 constraints, and the measured overhead is small enough to be a
 practical alternative to centralised IAM when the additional
