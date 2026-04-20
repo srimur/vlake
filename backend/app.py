@@ -244,6 +244,91 @@ def _encrypt_bytes(did, data):
 def _decrypt_bytes(did, data):
     return _get_dataset_fernet(did).decrypt(data)
 
+def _get_dataset_dek_bytes(did):
+    """Return the raw DEK material for a dataset (not a Fernet instance).
+    Used by column_crypto to derive deterministic/randomized/blind-index subkeys."""
+    if _master_fernet is None:
+        raise RuntimeError("Encryption not initialized")
+    from cryptography.fernet import Fernet
+    sdid = str(did)
+    if sdid not in _dek_store:
+        dek = Fernet.generate_key()
+        wrapped = _master_fernet.encrypt(dek)
+        _dek_store[sdid] = base64.b64encode(wrapped).decode()
+        _persist_dek_store()
+    wrapped = base64.b64decode(_dek_store[sdid])
+    return _master_fernet.decrypt(wrapped)
+
+# Initialize the master KEK / DEK store eagerly at import time so that
+# document upload, column encryption, and test harnesses all see a ready
+# encryption subsystem without having to call __main__.
+try:
+    _init_encryption()
+except Exception as _e:
+    log.error(f"Eager encryption init failed: {_e}")
+
+# ---- Column-level PHI encryption ----
+try:
+    import column_crypto
+except Exception as _e:
+    column_crypto = None
+    log.warning(f"column_crypto module unavailable ({_e}); PHI columns will be stored in plaintext")
+
+_column_keys_cache = {}
+
+def _get_column_keys(did):
+    sdid = str(did)
+    if sdid in _column_keys_cache:
+        return _column_keys_cache[sdid]
+    dek = _get_dataset_dek_bytes(did)
+    ks = column_crypto.derive_column_keys(dek)
+    _column_keys_cache[sdid] = ks
+    return ks
+
+def _apply_column_encryption(did, tbl):
+    """Rewrite an already-loaded DuckDB table so that PHI columns are
+    stored as ciphertext and blind-index side columns are added.
+    Must be called AFTER the source loader has populated the table and
+    BEFORE the Merkle tree is built (so the integrity root commits to
+    the post-encryption state)."""
+    if column_crypto is None:
+        return []
+    info = duck.execute(f'DESCRIBE "{tbl}"').fetchall()
+    cols = [(r[0], r[1]) for r in info]
+    overrides = (virtual_tables.get(str(did)) or {}).get("phi_overrides")
+    plan = column_crypto.build_plan(cols, overrides=overrides)
+    if not plan:
+        return []
+    keys = _get_column_keys(did)
+    col_names = [c[0] for c in cols]
+    col_index = {n: i for i, n in enumerate(col_names)}
+    bidx_names = column_crypto.plan_bidx_columns(plan)
+    rows = duck.execute(f'SELECT * FROM "{tbl}"').fetchall()
+    new_rows = [column_crypto.encrypt_row(keys, plan, r, col_index) for r in rows]
+    phi_cols_set = {p["col"] for p in plan}
+    new_col_names = list(col_names) + bidx_names
+    new_types = ["VARCHAR" if n in phi_cols_set else t for n, t in cols] + ["VARCHAR"] * len(bidx_names)
+    duck.execute(f'DROP TABLE IF EXISTS "{tbl}"')
+    col_defs = ", ".join(f'"{n}" {t}' for n, t in zip(new_col_names, new_types))
+    duck.execute(f'CREATE TABLE "{tbl}" ({col_defs})')
+    if new_rows:
+        placeholders = ", ".join(["?"] * len(new_col_names))
+        duck.executemany(f'INSERT INTO "{tbl}" VALUES ({placeholders})', new_rows)
+    vt = virtual_tables.get(str(did))
+    if vt is not None:
+        # Public schema hides blind-index side columns; they're an internal
+        # mechanism, not user-visible data. `phi_bidx_cols` keeps the full list
+        # for debugging/introspection.
+        vt["schema"] = [{"name": n, "type": t}
+                        for n, t in zip(new_col_names, new_types)
+                        if not n.lower().startswith("_bidx_")]
+        vt["phi_plan"] = plan
+        vt["phi_bidx_cols"] = bidx_names
+        vt["row_count"] = len(new_rows)
+    log.info(f"PHI encryption applied to dataset {did}/{tbl}: "
+             f"{len(plan)} column(s) encrypted, {len(bidx_names)} blind index(es) added")
+    return plan
+
 def _store_encrypted(did, doc_id, ciphertext):
     """Persist ciphertext to MinIO; fall back to local disk if MinIO is down."""
     object_key = f"datasets/{did}/{doc_id}.bin"
@@ -596,23 +681,105 @@ def compute_forest_root():
 
 
 # ═══════════════════════════════════════════════════════════
-# GRANT CACHE
+# GRANT CACHE (Redis-backed for multi-instance, in-memory fallback)
 # ═══════════════════════════════════════════════════════════
-GRANT_CACHE_TTL = 30; _grant_cache = {}; _cache_stats = {"hits":0,"misses":0,"invalidations":0}
+#
+# In a multi-instance deployment, grant revocations must propagate
+# across all application servers.  When REDIS_URL is set, V-Lake
+# stores grants in Redis with a per-key TTL, so every instance
+# sees invalidations immediately.  Without Redis the cache degrades
+# gracefully to a per-process dict with TTL-based expiry (30 s).
+# ═══════════════════════════════════════════════════════════
+
+GRANT_CACHE_TTL = int(os.getenv("GRANT_CACHE_TTL", "30"))
+_cache_stats = {"hits": 0, "misses": 0, "invalidations": 0}
+
+# ---------- Redis backend ----------
+_redis = None
+_REDIS_PREFIX = "vlake:grant:"
+try:
+    _redis_url = os.getenv("REDIS_URL", "").strip()
+    if _redis_url:
+        import redis as _redis_mod
+        _redis = _redis_mod.Redis.from_url(_redis_url, decode_responses=True)
+        _redis.ping()
+        log.info(f"Grant cache: Redis connected ({_redis_url})")
+    else:
+        log.info("Grant cache: in-memory (set REDIS_URL for multi-instance)")
+except Exception as _e:
+    _redis = None
+    log.warning(f"Redis unavailable ({_e}); falling back to in-memory grant cache")
+
+# ---------- In-memory fallback ----------
+_grant_cache = {}
+
+
+def _redis_key(u, did):
+    return f"{_REDIS_PREFIX}{u}:{did}"
+
 
 def cache_get(u, did):
-    e = _grant_cache.get((u,did))
-    if not e or time.time()-e["t"]>GRANT_CACHE_TTL or not e["g"].get("active"):
-        _cache_stats["misses"]+=1; _grant_cache.pop((u,did),None); return None
-    _cache_stats["hits"]+=1; return e["g"]
+    if _redis is not None:
+        try:
+            raw = _redis.get(_redis_key(u, did))
+            if raw is None:
+                _cache_stats["misses"] += 1
+                return None
+            g = json.loads(raw)
+            if not g.get("active"):
+                _cache_stats["misses"] += 1
+                _redis.delete(_redis_key(u, did))
+                return None
+            _cache_stats["hits"] += 1
+            return g
+        except Exception:
+            pass  # fall through to in-memory
+    e = _grant_cache.get((u, did))
+    if not e or time.time() - e["t"] > GRANT_CACHE_TTL or not e["g"].get("active"):
+        _cache_stats["misses"] += 1
+        _grant_cache.pop((u, did), None)
+        return None
+    _cache_stats["hits"] += 1
+    return e["g"]
 
-def cache_set(u, did, g): _grant_cache[(u,did)]={"g":g,"t":time.time()}
+
+def cache_set(u, did, g):
+    if _redis is not None:
+        try:
+            _redis.setex(_redis_key(u, did), GRANT_CACHE_TTL, json.dumps(g, default=str))
+            return
+        except Exception:
+            pass
+    _grant_cache[(u, did)] = {"g": g, "t": time.time()}
+
+
 def cache_inv_user(u):
-    ks=[k for k in _grant_cache if k[0]==u]
-    for k in ks: del _grant_cache[k]
-    _cache_stats["invalidations"]+=len(ks)
-def cache_inv(u,did):
-    if _grant_cache.pop((u,did),None): _cache_stats["invalidations"]+=1
+    count = 0
+    if _redis is not None:
+        try:
+            keys = list(_redis.scan_iter(f"{_REDIS_PREFIX}{u}:*"))
+            if keys:
+                count = len(keys)
+                _redis.delete(*keys)
+        except Exception:
+            pass
+    ks = [k for k in _grant_cache if k[0] == u]
+    for k in ks:
+        del _grant_cache[k]
+    count += len(ks)
+    _cache_stats["invalidations"] += count
+
+
+def cache_inv(u, did):
+    count = 0
+    if _redis is not None:
+        try:
+            count += _redis.delete(_redis_key(u, did))
+        except Exception:
+            pass
+    if _grant_cache.pop((u, did), None):
+        count += 1
+    _cache_stats["invalidations"] += count
 
 
 # ═══════════════════════════════════════════════════════════
@@ -867,6 +1034,10 @@ def _can_ingest(caller, did):
     return False
 
 def _post_ingest(did, tbl):
+    try:
+        _apply_column_encryption(did, tbl)
+    except Exception as e:
+        log.error(f"PHI column encryption failed for {did}/{tbl}: {e}")
     root,tree,lc = compute_merkle_for_table(tbl)
     rc = virtual_tables[did]["row_count"]
     S["datasets"][did].update({"merkleRoot":root,"rowCount":rc,"lastIngestionAt":int(time.time()),
@@ -1342,6 +1513,12 @@ def execute_query():
     if isinstance(inj,dict) and inj.get("rejected"):
         return jsonify({"error":f"Non-Truman rejection: unauthorized columns {inj.get('unauthorized_columns',[])}","unauthorizedColumns":inj.get("unauthorized_columns",[])}),403
     if inj is None: return jsonify({"error":"All columns outside grant"}),403
+    phi_plan = vt.get("phi_plan") or []
+    if phi_plan and column_crypto is not None:
+        try:
+            inj = column_crypto.rewrite_phi_predicates(inj, _get_column_keys(did), phi_plan)
+        except Exception as e:
+            log.warning(f"PHI predicate rewrite failed on dataset {did}: {e}")
     comp=check_compliance(inj,did,q,grant,vt.get("schema",[]))
     mr,tree,lc=get_or_build_merkle(did,tbl); fr,_=compute_forest_root()
     if not comp["passed"]:
@@ -1359,6 +1536,22 @@ def execute_query():
                 if ti<len(tree[0]) and tlh==tree[0][ti]:
                     proof=get_merkle_proof(tree,ti)
                     rps.append({"rowIndex":ti,"leafHash":tlh,"proof":proof,"verified":verify_merkle_proof(tlh,proof,mr)}); break
+    # Merkle proofs were computed against the ciphertext rows (what's stored on disk).
+    # Only AFTER the integrity check do we decrypt PHI columns for the authorized caller.
+    if phi_plan and column_crypto is not None:
+        try:
+            keys = _get_column_keys(did)
+            col_index = {c: i for i, c in enumerate(cols)}
+            result_cols_lc = {c.lower() for c in cols}
+            rows = [column_crypto.decrypt_row(keys, phi_plan, r, col_index, result_cols_lc) for r in rows]
+        except Exception as e:
+            log.warning(f"PHI result decryption failed on dataset {did}: {e}")
+    # Drop blind-index side columns from the user-facing result; they exist only
+    # to support encrypted equality filters and have no value to humans.
+    bidx_keep = [i for i, c in enumerate(cols) if not c.lower().startswith("_bidx_")]
+    if len(bidx_keep) != len(cols):
+        cols = [cols[i] for i in bidx_keep]
+        rows = [tuple(r[i] for i in bidx_keep) for r in rows]
     rs=json.dumps({"c":cols,"r":[list(r) for r in rows]},default=str); rh=sha256(rs)
     prev=S["attestations"][-1].get("attestation_hash","0"*64) if S["attestations"] else "0"*64
     ts=int(time.time()); att=sha256(f"{sha256(inj)}||{rh}||{mr}||{prev}||{ts}")
@@ -1548,7 +1741,13 @@ def blockchain_status():
     return jsonify(status)
 
 @app.route("/api/cache/stats")
-def cache_stats(): return jsonify({"stats":_cache_stats,"entries":len(_grant_cache),"ttl":GRANT_CACHE_TTL})
+def cache_stats():
+    backend = "redis" if _redis is not None else "memory"
+    entries = len(_grant_cache)
+    if _redis is not None:
+        try: entries += len(list(_redis.scan_iter(f"{_REDIS_PREFIX}*")))
+        except Exception: pass
+    return jsonify({"stats":_cache_stats,"entries":entries,"ttl":GRANT_CACHE_TTL,"backend":backend})
 
 
 

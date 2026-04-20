@@ -1,0 +1,226 @@
+{
+  "backend": "http://localhost:5000",
+  "rpc": "http://localhost:8545",
+  "ts": 1776596857,
+  "query_overhead": [
+    {
+      "baseline_ms": {
+        "avg": 4.036,
+        "p95": 6.332
+      },
+      "iterations": 200,
+      "overhead_pct": 21.01,
+      "query": "SELECT * FROM \"trial_enrollment\" LIMIT 100",
+      "vlake_ms": {
+        "avg": 4.884,
+        "p95": 7.572
+      },
+      "dataset": "trial_enrollment"
+    },
+    {
+      "baseline_ms": {
+        "avg": 3.03,
+        "p95": 4.359
+      },
+      "iterations": 200,
+      "overhead_pct": 10.04,
+      "query": "SELECT * FROM \"lab_results\" LIMIT 100",
+      "vlake_ms": {
+        "avg": 3.334,
+        "p95": 4.491
+      },
+      "dataset": "lab_results"
+    },
+    {
+      "baseline_ms": {
+        "avg": 4.919,
+        "p95": 8.108
+      },
+      "iterations": 200,
+      "overhead_pct": 13.91,
+      "query": "SELECT * FROM \"vitals_stream\" LIMIT 100",
+      "vlake_ms": {
+        "avg": 5.603,
+        "p95": 7.632
+      },
+      "dataset": "vitals_stream"
+    },
+    {
+      "baseline_ms": {
+        "avg": 3.87,
+        "p95": 6.811
+      },
+      "iterations": 200,
+      "overhead_pct": 14.61,
+      "query": "SELECT * FROM \"imaging_reports\" LIMIT 100",
+      "vlake_ms": {
+        "avg": 4.436,
+        "p95": 6.964
+      },
+      "dataset": "imaging_reports"
+    }
+  ],
+  "merkle_scale": [
+    {
+      "avg_ms": 0.059,
+      "p95_ms": 0.073,
+      "rows": 10
+    },
+    {
+      "avg_ms": 0.344,
+      "p95_ms": 0.366,
+      "rows": 100
+    },
+    {
+      "avg_ms": 3.561,
+      "p95_ms": 3.83,
+      "rows": 1000
+    },
+    {
+      "avg_ms": 19.149,
+      "p95_ms": 22.816,
+      "rows": 5000
+    },
+    {
+      "avg_ms": 36.014,
+      "p95_ms": 38.44,
+      "rows": 10000
+    },
+    {
+      "avg_ms": 231.868,
+      "p95_ms": 279.685,
+      "rows": 50000
+    }
+  ],
+  "attacks": {
+    "all_blocked": true,
+    "count": 7,
+    "scenarios": [
+      {
+        "attack": "SQL injection in rowFilter",
+        "blocked": true,
+        "detail": "Rejected rowFilter  -  contains forbidden SQL: 1=1; DROP TABLE trial_enrollment"
+      },
+      {
+        "attack": "Unauthorized column access (SSN + name)",
+        "blocked": true,
+        "detail": "Non-Truman rejection: ['participant_name', 'ssn']"
+      },
+      {
+        "attack": "Role escalation  -  analyst votes on proposal",
+        "blocked": true,
+        "detail": "vote_proposal() checks role in {DATA_STEWARD, DATA_CUSTODIAN}, rejects ANALYST"
+      },
+      {
+        "attack": "Expired grant reuse",
+        "blocked": true,
+        "detail": "Grant expired at 2026-04-19T10:07:46, query engine rejects"
+      },
+      {
+        "attack": "Data tampering (modified row)",
+        "blocked": true,
+        "detail": "Original root=9aa5a3536e1f2a7912e73c45... Tampered root=3ba9d14d24ba0a346315d904... MISMATCH detected"
+      },
+      {
+        "attack": "Consent chain forgery (modified hash)",
+        "blocked": true,
+        "detail": "Each consent hash = SHA256(record || prev_hash). Modifying any record breaks the chain. verify-chain endpoint detects."
+      },
+      {
+        "attack": "2/3 stewards try to attach policy (need all 3)",
+        "blocked": true,
+        "detail": "all_stew=True requires 3/3 stewards. Only 2 approved. stewardsMet=False"
+      }
+    ]
+  },
+  "column_crypto": {
+    "det_roundtrip": {
+      "n": 200,
+      "mean_ms": 0.032,
+      "std_ms": 0.008,
+      "ci95_ms": 0.001,
+      "p50_ms": 0.03,
+      "p95_ms": 0.052,
+      "p99_ms": 0.063,
+      "min_ms": 0.028,
+      "max_ms": 0.101,
+      "name": "det encrypt+decrypt"
+    },
+    "rand_roundtrip": {
+      "n": 200,
+      "mean_ms": 0.082,
+      "std_ms": 0.019,
+      "ci95_ms": 0.003,
+      "p50_ms": 0.076,
+      "p95_ms": 0.119,
+      "p99_ms": 0.162,
+      "min_ms": 0.068,
+      "max_ms": 0.225,
+      "name": "rand encrypt+decrypt"
+    },
+    "bidx_hash": {
+      "n": 500,
+      "mean_ms": 0.004,
+      "std_ms": 0.001,
+      "ci95_ms": 0.0,
+      "p50_ms": 0.004,
+      "p95_ms": 0.005,
+      "p99_ms": 0.006,
+      "min_ms": 0.003,
+      "max_ms": 0.019,
+      "name": "blind-index hash (icd3)"
+    }
+  },
+  "centralized": {
+    "query": {
+      "n": 200,
+      "mean_ms": 1.941,
+      "std_ms": 0.6,
+      "ci95_ms": 0.083,
+      "p50_ms": 1.84,
+      "p95_ms": 3.014,
+      "p99_ms": 3.312,
+      "min_ms": 1.115,
+      "max_ms": 3.521,
+      "name": "centralized query path (RBAC + raw DuckDB)"
+    },
+    "admin_op": {
+      "n": 200,
+      "mean_ms": 0.001,
+      "std_ms": 0.006,
+      "ci95_ms": 0.001,
+      "p50_ms": 0.0,
+      "p95_ms": 0.001,
+      "p99_ms": 0.002,
+      "min_ms": 0.0,
+      "max_ms": 0.09,
+      "name": "centralized admin grant (single writer)"
+    }
+  },
+  "chain": {
+    "anchor": {
+      "n": 10,
+      "mean_ms": 23.372,
+      "std_ms": 8.834,
+      "ci95_ms": 5.475,
+      "p50_ms": 30.454,
+      "p95_ms": 31.998,
+      "p99_ms": 31.998,
+      "min_ms": 12.273,
+      "max_ms": 31.998,
+      "name": "on-chain anchor (Merkle root record)"
+    },
+    "proposal_and_votes": {
+      "n": 5,
+      "mean_ms": 18.842,
+      "std_ms": 9.669,
+      "ci95_ms": 8.475,
+      "p50_ms": 12.826,
+      "p95_ms": 31.901,
+      "p99_ms": 31.901,
+      "min_ms": 11.058,
+      "max_ms": 31.901,
+      "name": "WQG proposal + 2 votes (on-chain)"
+    }
+  }
+}

@@ -56,11 +56,23 @@ logs/
 # ── Editors & OS ─────────────────────────────────────────
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ── LaTeX build artefacts ────────────────────────────────
+# Keep the .tex source and the compiled .pdf; drop the intermediates.
+*.aux
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.bbl
+*.blg
 
 # ── Docker ───────────────────────────────────────────────
 docker-compose.override.yml
