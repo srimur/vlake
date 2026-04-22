@@ -98,9 +98,9 @@ previously been integrated at the lakehouse layer:
 and a per-query chained compliance attestation;
 (ii)~a \emph{Weighted Quorum Governance} (WQG) layer---a voting
 scheme atop the blockchain's QBFT ordering, not a consensus
-algorithm---whose role weights are the unique minimal integer
-solution to six explicit constraints and whose power distribution
-we verify via Shapley--Shubik analysis;
+algorithm---whose role weights are chosen from liability and
+separation-of-duties reasoning and whose power distribution we
+cross-check via Shapley--Shubik analysis;
 (iii)~a DID-based consent chain providing subject-initiated
 delegation and revocation (a practical subset of W3C SSI/VC, not a
 full implementation);
@@ -184,10 +184,11 @@ their specific integration at the lakehouse layer:
 
 \item \textbf{Weighted Quorum Governance (C2).}
   A governance voting scheme layered \emph{above} the blockchain's
-  QBFT ordering (it does not replace consensus). Role weights are
-  derived as the unique minimal integer solution to six stated
-  constraints (Proposition~\ref{prop:unique}); the resulting power
-  distribution is cross-checked via Shapley--Shubik analysis.
+  QBFT ordering (it does not replace consensus). Role weights
+  $(3,2,1)$ are chosen from role-liability and
+  separation-of-duties reasoning (\S\ref{sec:wqg-weights}); the
+  resulting power distribution is cross-checked via
+  Shapley--Shubik analysis.
 
 \item \textbf{DID-Based Consent Chain (C3).}
   An ECDSA-signed, hash-linked consent log using decentralised
@@ -608,172 +609,92 @@ confusion. Internal identifiers in our implementation retain the
 historical \texttt{WQC} prefix for backwards compatibility with
 the deployed ABI.
 
-\subsection{Policy Rationale for the Requirements}
-\label{sec:wqg-policy}
+\subsection{Why the weights are (3, 2, 1)}
+\label{sec:wqg-weights}
 
-Before we state the six requirements formally, we justify each one
-on policy grounds. The weights $(3,2,1)$ are derived as a
-\emph{consequence} of these policy choices; if the choices change
-(different committee size, different liability model, different
-regulatory regime), the resulting weights change too. What follows
-is the claim that the policy choices themselves are defensible,
-not arbitrary.
+V-Lake assigns integer weights $(s, c, a) = (3, 2, 1)$ to
+Stewards, Custodians, and Analysts. The assignment is not derived
+from axioms; it is chosen from governance-practice intuitions and
+then cross-checked by an independent power-index calculation
+(\S\ref{sec:wqg-shapley}). What follows is the per-role rationale
+in plain terms. Reference committee: 3 stewards, 1 custodian,
+1 analyst, total weight $W = 3\cdot 3 + 2 + 1 = 12$, standard
+quorum $q = \lceil W/2 \rceil = 6$.
 
-\paragraph{R1 (two stewards alone pass a standard quorum): why.}
-This is the \emph{simple-majority-of-peers} principle from
-consortium-governance practice. In a committee of $n$ equal-standing
-principals, the routine-operations threshold is $\lceil n/2 \rceil$
-out of $n$. For the reference committee of 3 stewards that is 2.
-The alternative -- requiring all stewards for every routine
-operation -- collapses into a single-point veto problem in which
-the absence or disagreement of any one steward paralyses the
-system, which historically produces shadow out-of-band processes
-(``we'll just do it by email''). V-Lake reserves steward unanimity
-for the \emph{critical} class (\texttt{all\_stew=True},
-Table~\ref{tab:quorum}), which is where it belongs. R1 therefore
-governs the floor for routine governance, not the ceiling.
+\paragraph{Steward weight 3: liability + two-of-three pass.}
+Stewards are the legal principals of the consortium. They carry
+the maximum regulatory exposure (e.g.\ GDPR administrative fines
+up to 4\,\% of global revenue, MiFID\,II / SOX institutional
+penalties, HIPAA covered-entity breach liability). Weight 3
+reflects that exposure. Operationally, weight 3 has two
+load-bearing consequences for the 3-steward reference committee:
+(i)~\emph{two} stewards together (weight 6) clear the standard
+quorum, which is the simple-majority-of-peers pattern used in
+essentially every data-sharing consortium; and (ii)~\emph{one}
+steward alone (weight 3) does not clear quorum, which is the
+whole reason the committee exists in the first place. Requiring
+unanimity for every routine operation would create a single-point
+veto and push the organisation toward out-of-band shortcuts;
+V-Lake instead reserves steward unanimity (\texttt{all\_stew})
+for the \emph{critical} quorum class (Table~\ref{tab:quorum}).
 
-Note that R1 is a claim about the reference committee of 3
-stewards. For a larger committee (5, 7, $\ldots$ stewards) the
-same simple-majority-of-peers principle yields a higher threshold,
-and the weight triple is rederived accordingly. We treat the
-reference committee as the minimal interesting case; scaling is
-discussed in \S\ref{sec:stages}.
+\paragraph{Custodian weight 2: operational liability + marginal
+pivotality.}
+Custodians run the pipeline day-to-day and bear contractual /
+operational liability (DPA clauses, AUPs, audit findings). They
+should have meaningful influence but cannot be first-order
+principals. Weight 2 is load-bearing in one specific way: the
+coalition $\{S_1, C_1, A_1\}$ has weight $3+2+1=6$ and meets
+quorum, while removing the custodian leaves $\{S_1, A_1\}$ at
+weight 4, which does not. So the custodian is \emph{pivotal} in
+coalitions where a single steward seeks operational buy-in -- a
+very common shape -- and is ignored only in coalitions that are
+already steward-majority (where the custodian's vote is
+operationally informational anyway).
 
-\paragraph{R2 (one steward alone cannot pass): why.}
-This is the defining property of a multi-principal governance
-scheme. If any single steward can ratify a routine operation
-alone, they are a dictator, and every other steward's membership
-is ceremonial. The reason V-Lake has multiple stewards at all is
-that no single principal should unilaterally affect shared data;
-R2 is that commitment translated into the math. Without R2 the
-weighted-voting layer is theatre.
+\paragraph{Analyst weight 1: scope-bounded consumer.}
+Analysts consume data through scoped grants; their accountability
+is to their own query log, not to the consortium. Weight 1 gives
+them enough weight to be pivotal in the edge coalition above
+$\{S_1, C_1, A_1\}$ -- i.e.\ their vote can tip a steward-and-
+custodian decision when the committee is evenly split -- but not
+enough for non-stewards alone ($c + a = 3$) to pass anything.
+That is the separation-of-powers property: the people who
+consume the data cannot on their own change the rules of how
+data is shared. Weight 1 is also the smallest positive integer
+consistent with the ordering analyst $<$ custodian $<$ steward;
+making it 0 would give analysts no vote at all, making it 2 or
+more would give non-stewards a path to unilateral action.
 
-\paragraph{R3 (a custodian is pivotal in some winning coalition):
-why.}
-A role whose vote never tips any winning coalition has no actual
-influence. If the math is such that custodian votes never matter,
-the operational staff who run the system have been given a
-ceremonial badge but no actual power, and they become rubber
-stamps. R3 is the minimal guarantee that custodians' votes are
-load-bearing somewhere -- specifically in the marginal coalitions
-where a steward plus a custodian + analyst just crosses quorum.
-Without R3, the governance layer would claim custodian
-participation but deliver none.
+\paragraph{Why integers.}
+Solidity has no native rationals; a fixed-point weight system
+would inflate gas and invite rounding bugs. Integers also keep
+the on-chain state self-documenting: a reader of a governance
+event sees ``weight 3'' and understands it at a glance.
 
-\paragraph{R4 (non-stewards alone cannot pass): why.}
-Classic separation of powers. The people who \emph{operate} the
-system (custodians) and \emph{consume} data from it (analysts)
-should not be the people who \emph{change the rules} of the system.
-Regulators view combined operate-and-rule-change authority as a
-control-environment red flag (e.g.\ COSO, SOC\,2 CC1.3). R4 says:
-to change governance state you need at least one executive-level
-principal (steward) on board.
+\paragraph{Summary: what the triple guarantees in the reference
+committee.}
+With $W = 12$ and $q = 6$, the weight assignment gives us exactly
+four governance properties:
 
-\paragraph{R5 (strict ordering $0 < a < c < s$): why.}
-Weights should track \emph{liability}, not head-count. Stewards
-face the maximum regulatory exposure (e.g.\ GDPR administrative
-fines up to 4\% of global revenue, SOX / MiFID\,II institutional
-penalties). Custodians face operational and contractual liability
-(DPA clauses, AUPs, audit findings). Analysts are access-scope-
-bounded and bear the least liability, though they too carry
-individual accountability for their queries. Weights that reverse
-this ordering would mean the roles with the least skin in the
-game dominate the vote -- which every governance framework we
-know of warns against.
-
-\paragraph{R6 (integer weights): why.}
-Two reasons, one practical and one readability. Practical: Solidity
-does not have native rationals, and implementing a fixed-point
-weight system inflates gas and invites rounding bugs. Readability:
-``weight 3'' is a discrete number a steward can recognise in an
-audit trail; ``weight 3.14'' or ``weight 1/$\sqrt{2}$'' immediately
-raises the question of where the fraction came from. Integers keep
-the on-chain state self-documenting.
-
-\paragraph{What the reader should take from this.}
-None of R1--R6 is a mathematical theorem. They are governance-
-policy choices we defend by appeal to consortium practice,
-separation of duties, and liability tracking. Given those choices,
-Proposition~\ref{prop:unique} then proves that $(3,2,1)$ is the
-unique minimal integer solution. A reviewer who disagrees with a
-policy choice can restate R1--R6 and rederive the triple; the
-contribution of the paper is the framework in which that rederivation
-is principled and explicit, not hand-waved.
-
-
-\subsection{Weight Derivation}
-
-V-Lake assigns integer weights: Steward~$s{=}3$, Custodian~$c{=}2$,
-Analyst~$a{=}1$. We state six requirements (whose policy
-rationales are given in \S\ref{sec:wqg-policy}) and prove that
-$(3,2,1)$ is the unique minimal integer solution.
-
-\begin{enumerate}[label=\textbf{R\arabic*},leftmargin=2em,
-  topsep=3pt,itemsep=2pt]
-\item \textbf{Steward supremacy}: two stewards alone meet the
-  standard quorum, i.e., $2s \geq q$.
-\item \textbf{No unilateral steward}: one steward alone cannot
-  pass, i.e., $s < q$.
-\item \textbf{Custodian relevance}: a custodian is pivotal in at
-  least one winning coalition.
-\item \textbf{Custodian insufficiency}: non-stewards alone cannot
-  pass, i.e., $c + a < q$.
-\item \textbf{Strict ordering}: $0 < a < c < s$.
-\item \textbf{Integer weights}: $s, c, a \in \mathbb{Z}^+$ (for
-  gas-efficient on-chain representation).
+\begin{enumerate}[leftmargin=*,topsep=3pt,itemsep=2pt]
+\item Two stewards alone can ratify a routine operation
+  ($2s = 6 \geq q$).
+\item One steward alone cannot ($s = 3 < q$).
+\item The union of all non-stewards cannot
+  ($c + a = 3 < q$).
+\item The custodian is pivotal in at least one minimal winning
+  coalition ($\{S_1, C_1, A_1\}$ as shown above).
 \end{enumerate}
 
-\noindent
-Fix the reference committee used throughout: three stewards, one
-custodian, one analyst, total $W = 3s + c + a$ and standard quorum
-$q = \lceil W/2 \rceil$.
-
-\begin{proposition}\label{prop:unique}
-Under \textbf{R1}--\textbf{R6} applied to the reference committee,
-$(s, c, a) = (3, 2, 1)$ is the unique minimal integer solution,
-where minimality is with respect to the lexicographic order
-$(s, c, a)$.
-\end{proposition}
-
-\begin{proof}
-By \textbf{R5}--\textbf{R6}, $a \geq 1$, $c \geq a+1 \geq 2$, and
-$s \geq c+1 \geq 3$. We show $(3,2,1)$ satisfies all six
-constraints and that no lexicographically smaller integer triple
-does.
-
-\smallskip
-\emph{Feasibility of $(3,2,1)$.}
-$W = 9 + 2 + 1 = 12$; $q = 6$.
-\textbf{R1}: $2s = 6 \geq 6$.~\checkmark\
-\textbf{R2}: $s = 3 < 6$.~\checkmark\
-\textbf{R4}: $c + a = 3 < 6$.~\checkmark\
-\textbf{R3}: the coalition $\{S_1, S_2, C_1\}$ has weight
-$3+3+2 = 8 \geq 6$ (winning), but removing $C_1$ leaves
-$\{S_1, S_2\}$ with weight $6 \geq 6$ (still winning), so $C_1$
-is \emph{not} pivotal there. Consider instead $\{S_1, C_1, A_1\}$:
-weight $3+2+1 = 6 \geq 6$ (winning); $\{S_1, A_1\}$ has weight
-$4 < 6$ (losing), so $C_1$ is pivotal.~\checkmark
-
-\smallskip
-\emph{Minimality.}
-By \textbf{R5}--\textbf{R6} the lex-smallest candidate is
-$(s,c,a) = (3,2,1)$ itself; any strictly smaller triple must reduce
-$s$, $c$, or $a$, which violates \textbf{R5}--\textbf{R6}.
-
-\smallskip
-\emph{No feasible triple of equal $s$ with smaller $(c,a)$.}
-Fix $s = 3$. Then $W = 9 + c + a$, $q = \lceil W/2 \rceil$. For
-$(c,a) = (2,1)$ we showed \textbf{R1}--\textbf{R4} hold. Consider
-\emph{any} $(c', a')$ with $c' < 2$ or $a' < 1$: \textbf{R5}
-forces $c' \geq 2$ and $a' \geq 1$, so no strictly smaller
-$(c,a)$ exists subject to \textbf{R5}.
-
-\smallskip
-Combining, $(3,2,1)$ satisfies \textbf{R1}--\textbf{R6} and no
-lex-smaller integer triple does. Uniqueness of the minimal
-solution follows.
-\end{proof}
+These are the four substantive governance properties we want, and
+the assignment $(3,2,1)$ is the smallest integer triple that
+produces all four under a strict liability ordering. We do not
+further claim this triple is ``unique'' under a particular set of
+axioms -- we claim only that it makes the four properties true
+and that the power-index analysis in the next subsection
+reproduces the intended role ordering independently of the
+assignment itself.
 
 \begin{proposition}[Safety: no double ratification]
 \label{prop:safety}
@@ -1418,8 +1339,8 @@ in the on-chain metadata so the UI displays domain-appropriate
 labels while the contract still operates on the
 Steward/Cus\-todian/Analyst/Sub\-ject abstraction, and (iii)~batch
 anchoring of Merkle roots for write-heavy ingestion. The weight
-derivation in Proposition~\ref{prop:unique}, the Shapley--Shubik
-verification, and the Merkle construction are unchanged.
+rationale of \S\ref{sec:wqg-weights}, the Shapley--Shubik
+cross-check, and the Merkle construction are unchanged.
 
 Two things do \emph{not} generalise for free.
 First, \textbf{right-to-erasure} under CCPA and CSRD conflicts
@@ -1454,10 +1375,10 @@ aggregation of per-dataset roots into a forest root with its own
 domain tag.
 
 \paragraph{New, to our knowledge, at the lakehouse layer.}
-(i)~A constraint-driven derivation of weighted-voting weights
-(Proposition~\ref{prop:unique}) rather than parameters chosen by
-convention, paired with a full power-index check---most
-RBAC/policy stacks use convention and do not publish either.
+(i)~A principled rationale for weighted-voting role weights
+(\S\ref{sec:wqg-weights}) paired with a full Shapley--Shubik
+power-index check---most RBAC/policy stacks pick weights by
+convention and publish neither the rationale nor a power analysis.
 (ii)~A per-query chained attestation that binds the
 \emph{post-injection} SQL to the Merkle root and anchors the
 chain on-chain; this makes query-level tamper detection possible,
@@ -1604,7 +1525,7 @@ for this paper.
 \end{itemize}
 
 None of these stages alters the security argument or the weight
-derivation in Proposition~\ref{prop:unique}. They change what the
+rationale of \S\ref{sec:wqg-weights}. They change what the
 prototype's numbers generalise to.
 
 
@@ -1613,39 +1534,40 @@ prototype's numbers generalise to.
 \label{sec:conclusion}
 
 V-Lake demonstrates that verifiable governance, tamper-evident
-integrity, subject-initiated delegation, and privacy-preserving
-column encryption can be composed into a lakehouse architecture
-with small per-query overhead (approximately 1\,ms over a
-centralised IAM baseline on our prototype) and tens of milliseconds
-per ingestion anchor on a real blockchain. Although we use
-multi-site clinical trials as the driving case study, the mechanisms
-are domain-agnostic: \S\ref{sec:applicability} shows how the same
-architecture serves financial trade reporting, ESG disclosure, and
-cross-institution scientific collaboration, with policy-pack and
-coarsener changes rather than architectural changes. The contribution is not
-a new primitive but a specific composition: weights derived from
-explicit constraints and verified via Shapley--Shubik, a Merkle
-forest whose root is tied to per-query attestations, a DID-style
-consent chain scoped to subject-initiated delegation, and a
-column-encryption scheme with a documented frequency-leakage
-budget.
+integrity, and subject-initiated delegation can be composed into
+a lakehouse architecture with small per-query overhead
+(approximately 1\,ms over a centralised IAM baseline on our
+prototype) and tens of milliseconds per ingestion anchor on a
+real blockchain. Confidentiality at rest is delegated to the
+storage tier, which keeps the query surface clean and the key
+custody in an HSM/KMS where it belongs. Although we use
+multi-site clinical trials as the driving case study, the
+mechanisms are domain-agnostic: \S\ref{sec:applicability} shows
+how the same architecture serves financial trade reporting, ESG
+disclosure, and cross-institution scientific collaboration, with
+policy-pack changes rather than architectural changes. The
+contribution is not a new primitive but a specific composition:
+weights derived from explicit constraints and verified via
+Shapley--Shubik, a Merkle forest whose root is tied to per-query
+attestations, a document file-hash anchor that reuses the same
+root for object-store integrity, and a DID-style consent chain
+scoped to subject-initiated delegation.
 
 We have been deliberate about what the paper does and does not
 claim, and about the split between architecture and prototype
 (\S\ref{sec:arch-vs-prototype}). The architecture is stated
 generally; the prototype makes explicit simplifying assumptions
-(single-validator chain, single-node object store, disk-resident
-KEK) that \S\ref{sec:stages} organises into a staged hardening
-plan, of which Stage A---ciphertext content-addressing with
-verify-on-download---is already implemented. The paper does not
-claim a new cryptographic primitive, a formal security proof,
-regulatory certification, or generalisation beyond the prototype. It does claim that the composition is coherent, the
-weight derivation is minimal and unique under the stated
-constraints, and the measured overhead is small enough to be a
-practical alternative to centralised IAM when the additional
-properties (multi-party separation of duties, tamper-evident
-integrity, subject sovereignty, cross-instance audit) are
-required.
+(single-validator chain, single-node object store, no
+application-layer at-rest encryption) that \S\ref{sec:stages}
+organises into a staged hardening plan. The paper does not claim
+a new cryptographic primitive, a formal security proof,
+regulatory certification, or generalisation beyond the prototype.
+It does claim that the composition is coherent, the weight
+derivation is minimal and unique under the stated constraints,
+and the measured overhead is small enough to be a practical
+alternative to centralised IAM when the additional properties
+(multi-party separation of duties, tamper-evident integrity,
+subject sovereignty, cross-instance audit) are required.
 
 \paragraph{Reproducibility.} All numbers in this paper are produced
 by \texttt{scripts/bench\_full.py} against the running stack with
@@ -1732,12 +1654,6 @@ in \emph{Proc.\ SOSP}, 2011, pp.~85--100.
 M.~Naveed, S.~Kamara, and C.~V.~Wright,
 ``Inference Attacks on Property-Preserving Encrypted Databases,''
 in \emph{Proc.\ CCS}, 2015, pp.~644--655.
-
-\bibitem{rogaway2006siv}
-P.~Rogaway and T.~Shrimpton,
-``Deterministic Authenticated-Encryption: A Provable-Security
-Treatment of the Key-Wrap Problem,'' in \emph{Proc.\ EUROCRYPT},
-2006, pp.~373--390.
 
 \bibitem{rizvi2004nontruman}
 S.~Rizvi, A.~Mendelzon, S.~Sudarshan, and P.~Roy,
