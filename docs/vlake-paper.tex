@@ -609,92 +609,258 @@ confusion. Internal identifiers in our implementation retain the
 historical \texttt{WQC} prefix for backwards compatibility with
 the deployed ABI.
 
-\subsection{Why the weights are (3, 2, 1)}
+\subsection{Reference committee and the four design questions}
 \label{sec:wqg-weights}
 
-V-Lake assigns integer weights $(s, c, a) = (3, 2, 1)$ to
-Stewards, Custodians, and Analysts. The assignment is not derived
-from axioms; it is chosen from governance-practice intuitions and
-then cross-checked by an independent power-index calculation
-(\S\ref{sec:wqg-shapley}). What follows is the per-role rationale
-in plain terms. Reference committee: 3 stewards, 1 custodian,
-1 analyst, total weight $W = 3\cdot 3 + 2 + 1 = 12$, standard
-quorum $q = \lceil W/2 \rceil = 6$.
+We pick a weighted voting game by answering four governance
+questions and a quorum question, in that order. The resulting
+weights $(s,c,a)=(3,2,1)$ and thresholds $\{50\%, 67\%,
+\text{emergency}\}$ are the consequence; other numerical choices
+would also be valid as long as they answer the same questions
+consistently (see \S\ref{sec:wqg-alternatives} for worked
+alternatives).
 
-\paragraph{Steward weight 3: liability + two-of-three pass.}
-Stewards are the legal principals of the consortium. They carry
-the maximum regulatory exposure (e.g.\ GDPR administrative fines
-up to 4\,\% of global revenue, MiFID\,II / SOX institutional
-penalties, HIPAA covered-entity breach liability). Weight 3
-reflects that exposure. Operationally, weight 3 has two
-load-bearing consequences for the 3-steward reference committee:
-(i)~\emph{two} stewards together (weight 6) clear the standard
-quorum, which is the simple-majority-of-peers pattern used in
-essentially every data-sharing consortium; and (ii)~\emph{one}
-steward alone (weight 3) does not clear quorum, which is the
-whole reason the committee exists in the first place. Requiring
-unanimity for every routine operation would create a single-point
-veto and push the organisation toward out-of-band shortcuts;
-V-Lake instead reserves steward unanimity (\texttt{all\_stew})
-for the \emph{critical} quorum class (Table~\ref{tab:quorum}).
+\paragraph{Reference committee.}
+Three stewards, one custodian, one analyst. This is the smallest
+committee that admits non-trivial governance (a 2-steward committee
+has no majority-of-peers; a 0-custodian committee cannot exhibit
+operational-role pivotality). The analysis scales: the four design
+questions below are each phrased as properties of a committee of
+arbitrary size; the reference committee is just the smallest
+non-degenerate instance.
 
-\paragraph{Custodian weight 2: operational liability + marginal
-pivotality.}
-Custodians run the pipeline day-to-day and bear contractual /
-operational liability (DPA clauses, AUPs, audit findings). They
-should have meaningful influence but cannot be first-order
-principals. Weight 2 is load-bearing in one specific way: the
-coalition $\{S_1, C_1, A_1\}$ has weight $3+2+1=6$ and meets
-quorum, while removing the custodian leaves $\{S_1, A_1\}$ at
-weight 4, which does not. So the custodian is \emph{pivotal} in
-coalitions where a single steward seeks operational buy-in -- a
-very common shape -- and is ignored only in coalitions that are
-already steward-majority (where the custodian's vote is
-operationally informational anyway).
+\subsubsection{Design questions for the coalition structure}
 
-\paragraph{Analyst weight 1: scope-bounded consumer.}
-Analysts consume data through scoped grants; their accountability
-is to their own query log, not to the consortium. Weight 1 gives
-them enough weight to be pivotal in the edge coalition above
-$\{S_1, C_1, A_1\}$ -- i.e.\ their vote can tip a steward-and-
-custodian decision when the committee is evenly split -- but not
-enough for non-stewards alone ($c + a = 3$) to pass anything.
-That is the separation-of-powers property: the people who
-consume the data cannot on their own change the rules of how
-data is shared. Weight 1 is also the smallest positive integer
-consistent with the ordering analyst $<$ custodian $<$ steward;
-making it 0 would give analysts no vote at all, making it 2 or
-more would give non-stewards a path to unilateral action.
+\paragraph{D1: What fraction of stewards should suffice for
+\emph{routine} operations?}
+\emph{Answer: simple majority.} In a committee of $n$ equal-standing
+principals, the routine-operation default is $\lceil n/2 \rceil$ of
+$n$. This is the rule used by (a)~Delaware General Corporation Law
+\S141(b), which permits board action by majority of directors
+present; (b)~the U.S.\ Model Business Corporation Act \S8.24;
+(c)~the U.K.\ Companies Act 2006 \S281 for ordinary resolutions;
+(d)~the Uniform Partnership Act \S401(j) for ordinary partnership
+decisions; and (e)~most consortium bylaws we have surveyed (W3C,
+Apache Software Foundation, Linux Foundation project bylaws).
+In the 3-steward reference committee this is 2 of 3.
 
-\paragraph{Why integers.}
-Solidity has no native rationals; a fixed-point weight system
-would inflate gas and invite rounding bugs. Integers also keep
-the on-chain state self-documenting: a reader of a governance
-event sees ``weight 3'' and understands it at a glance.
+The alternative -- requiring all principals for every action --
+creates a \emph{single-point veto}. Every industry that has tried
+unanimity for routine matters (including the original UN Security
+Council structure for non-P5 matters, and several early Internet
+standards bodies) has abandoned it or grown shadow out-of-band
+processes. Unanimity has a legitimate role, but it is for
+\emph{critical} decisions (D3), not routine ones.
 
-\paragraph{Summary: what the triple guarantees in the reference
-committee.}
-With $W = 12$ and $q = 6$, the weight assignment gives us exactly
-four governance properties:
+\paragraph{D2: Should any single principal be able to pass a
+routine operation alone?}
+\emph{Answer: no.} This is the definitional property of a
+multi-principal consortium. A scheme that lets one principal
+ratify routine matters reduces to executive rule by that principal
+and makes the other principals' membership ceremonial. Every
+corporate-governance framework we are aware of prohibits unilateral
+executive action without board consent for the scope of decisions
+that V-Lake labels ``routine'' (role assignments, access grants,
+policy attachments).
 
-\begin{enumerate}[leftmargin=*,topsep=3pt,itemsep=2pt]
-\item Two stewards alone can ratify a routine operation
-  ($2s = 6 \geq q$).
-\item One steward alone cannot ($s = 3 < q$).
-\item The union of all non-stewards cannot
-  ($c + a = 3 < q$).
-\item The custodian is pivotal in at least one minimal winning
-  coalition ($\{S_1, C_1, A_1\}$ as shown above).
-\end{enumerate}
+\paragraph{D3: Which decisions warrant \emph{unanimity} of
+stewards?}
+\emph{Answer: decisions that are irreversible or catastrophic if
+wrong.} V-Lake labels these \emph{critical} and marks them with
+\texttt{all\_stew=True}: \textsc{AttachPolicy} (binds a legal
+regime to a dataset), \textsc{ToggleConfidential} (changes whether
+data can be downloaded vs only queried). These choices follow the
+same heuristic as \emph{extraordinary resolutions} under the U.K.\
+Companies Act (75\,\% threshold; we implement a stricter version
+with full unanimity) and Delaware GCL \S251 merger approval (which
+requires majority of outstanding stock and, by default,
+disinterested-director majority -- again heightened from the
+routine-matter rule).
 
-These are the four substantive governance properties we want, and
-the assignment $(3,2,1)$ is the smallest integer triple that
-produces all four under a strict liability ordering. We do not
-further claim this triple is ``unique'' under a particular set of
-axioms -- we claim only that it makes the four properties true
-and that the power-index analysis in the next subsection
-reproduces the intended role ordering independently of the
-assignment itself.
+\paragraph{D4: Must non-steward roles have load-bearing votes?}
+\emph{Answer: yes, but bounded.} Two sub-requirements:
+
+\begin{itemize}[leftmargin=*,topsep=1pt,itemsep=1pt]
+\item \textbf{Custodians must be pivotal in at least one minimal
+  winning coalition.} Otherwise their vote never matters and they
+  are operational rubber stamps, which breaks their de facto
+  contractual accountability. ``Pivotal in some minimal winning
+  coalition'' is the weakest formal statement of ``having real
+  influence'' in a weighted voting game.
+\item \textbf{Non-stewards together cannot pass anything alone.}
+  This is the separation-of-duties property: the people who
+  \emph{operate and consume} shared data cannot unilaterally
+  \emph{change the rules} of how shared data is governed. Every
+  control framework cited below -- COSO 2013 principle~3, SOC\,2
+  CC1.3, ISO/IEC~27001 A.5.3 -- explicitly flags combined
+  operate-and-rule-change authority as a control weakness.
+\end{itemize}
+
+Analysts inherit the same separation-of-duties constraint and in
+addition should not be pivotal \emph{without} operational support
+(their accountability is scope-bounded to their query log, not to
+the consortium's policy). This is captured automatically by having
+analyst weight smaller than custodian weight.
+
+\subsubsection{Deriving the weights from D1--D4}
+
+Let $s,c,a$ be the integer weights and $q$ the standard quorum.
+Requirements D1--D4 translate to:
+
+\begin{align*}
+\text{D1:} \quad & 2s \geq q, \quad ns \geq q \text{ for all } n\geq 2\\
+\text{D2:} \quad & s < q \\
+\text{D3:} \quad & \text{handled separately by \texttt{all\_stew}} \\
+\text{D4a:} \quad & \exists \text{ coalition } \mathcal{C} \text{ with }
+  C_1 \in \mathcal{C},\ w(\mathcal{C}) \geq q,\ w(\mathcal{C}\setminus\{C_1\}) < q \\
+\text{D4b:} \quad & c + a < q
+\end{align*}
+
+We adopt $q = \lceil W/2 \rceil$ (simple majority; see the separate
+threshold discussion below). In the reference committee,
+$W = 3s + c + a$, so $q = \lceil (3s+c+a)/2 \rceil$.
+
+Any triple $(s,c,a)$ with $s \geq 1$ and $c,a \geq 0$ that satisfies
+D1, D2, D4a, D4b is admissible. The smallest admissible triple
+under this definition is \textbf{(2, 1, 1)}: $W=8$, $q=4$; $2s=4$
+meets D1; $s=2 < 4$ meets D2; $c+a=2 < 4$ meets D4b; coalition
+$\{S_1, C_1, A_1\}$ has weight 4 (winning) and removing $C_1$
+leaves $\{S_1, A_1\}$ at weight 3 (losing), so $C_1$ is pivotal,
+meeting D4a.
+
+The triple (3, 2, 1) satisfies D1--D4 equally well: $W=12$, $q=6$;
+$2s=6 \geq 6$; $s=3 < 6$; $c+a=3 < 6$; $\{S_1,C_1,A_1\}$ has weight
+6 (winning) and removing $C_1$ leaves weight 4 (losing). Coalition
+structure and Shapley--Shubik power-index ratios are \emph{identical}
+between (2,1,1) and (3,2,1) in this committee -- they are
+game-theoretically equivalent.
+
+\paragraph{Why we report (3, 2, 1) rather than (2, 1, 1).}
+One reason and one reason only: in (2,1,1), custodian and analyst
+have the same weight, so an audit log reader cannot distinguish a
+custodian's vote from an analyst's vote by the weight column alone.
+In (3,2,1) the weight is self-documenting (``weight 2 = custodian'',
+``weight 1 = analyst''). Game-theoretic behaviour is preserved,
+readability improves. We flag this as a presentation choice,
+not a mathematical necessity, in \S\ref{sec:wqg-alternatives}.
+
+\subsubsection{Thresholds: 50\%, 67\%, emergency}
+\label{sec:wqg-thresholds}
+
+\paragraph{Standard quorum, 50\%.}
+The threshold is $q = \lceil W/2 \rceil$, i.e.\ ``at least half
+the total weight votes yes, ties break in favour of the proposal
+(equal-at-half is a pass).'' This is the weighted analogue of
+\emph{simple majority}. The governance precedent list is the same
+as for D1: Delaware GCL, MBCA, Companies Act 2006 \S281 ordinary
+resolutions, Robert's Rules of Order for ordinary questions. The
+choice of $\lceil \cdot \rceil$ (versus $\lfloor W/2 \rfloor + 1$,
+strict majority) is deliberate: with $\lceil W/2 \rceil$, a tie
+goes to the proposal, which matches majority-voting convention
+where abstentions effectively count as no. For committees where
+strict majority is preferred, the threshold is a single-line
+configuration change; the rest of the scheme is unchanged.
+
+\paragraph{Critical quorum, 67\%.}
+The threshold is $q_{\text{crit}} = \lceil 0.67 \cdot W \rceil$
+and is additionally paired with \texttt{all\_stew=True}. The 67\,\%
+figure is the standard \emph{supermajority} used for
+heightened-stakes decisions across governance systems:
+
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item U.S.\ Senate: 2/3 of senators present for treaty ratification,
+  constitutional amendment proposals, and vetoing a presidential
+  veto;
+\item U.S.\ Constitution Article~V: 2/3 of both houses to propose
+  amendments, 3/4 of states to ratify;
+\item U.K.\ Companies Act 2006 \S283: special resolutions require
+  75\,\% (a stricter variant);
+\item Delaware GCL \S242: certain charter amendments require 2/3
+  approval under the default bylaws;
+\item ICANN bylaws and IETF consensus process both use a
+  supermajority convention for heightened-stakes procedural
+  changes.
+\end{itemize}
+
+We chose 67\,\% over 75\,\% to match the Senate / ICANN
+convention rather than the stricter Companies-Act \S283 norm --
+the extra margin above simple majority is what matters, not
+whether it is exactly 2/3 or exactly 3/4. A deployment that
+prefers 75\,\% can reconfigure the threshold without changing
+the rest of the machinery.
+
+Why \emph{in addition} to \texttt{all\_stew}? The 67\,\% threshold
+is a property of the \emph{weighted total}; \texttt{all\_stew} is
+a property of the \emph{steward set}. In the reference committee
+with $W=12$, either condition alone would require three steward
+yes votes (9 weight = 75\,\% already exceeds 67\,\%), so
+\texttt{all\_stew} is the binding constraint. In a committee with
+two custodians ($W=14$, $q_{\text{crit}}=10$), the constraint
+becomes ``all three stewards \emph{and} at least one custodian
+must agree,'' because $3s=9 < 10$. The pair-wise definition lets
+the same governance semantics scale across committee sizes
+without redefining what ``critical'' means.
+
+\paragraph{Emergency quorum (any single steward).}
+Used for \textsc{RevokeAnalyst}, the break-glass pattern.
+Threshold is effectively $q_{\text{emerg}} = s$ (one steward's
+weight). Rationale: regulator-mandated incident response. HIPAA
+\S164.312(a)(2)(ii) requires covered entities to have a procedure
+for \emph{emergency access} that does not depend on normal
+quorum; PCI-DSS \S12.10 requires an incident-response plan with
+unilateral revocation authority; ISO/IEC~27001 A.5.26 requires
+the ability to revoke access rights ``without delay'' when a
+compromise is suspected. Deliberately debating an analyst
+revocation across three steward calendars in the middle of a
+security incident is itself the non-compliant behaviour; the
+emergency class is the regulator-prescribed exception. Every
+emergency invocation emits a quorum certificate on-chain, so the
+audit trail is intact even though the governance path was fast.
+
+\subsubsection{Alternative weight triples that would also work}
+\label{sec:wqg-alternatives}
+
+Because the requirements D1--D4 are coalition-structure properties,
+any weight triple that preserves the same pattern of minimal
+winning coalitions yields the same governance behaviour. In the
+reference committee, the admissible minimal-integer triples are:
+
+\begin{center}
+\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+Triple & Total $W$ & $q_{50\%}$ & Custodian $=$ analyst? \\
+\midrule
+$(2,1,1)$ & 8  & 4 & Yes (not distinguishable by weight) \\
+$(3,2,1)$ & 12 & 6 & \textbf{No} (our choice) \\
+$(4,3,1)$ & 16 & 8 & No \\
+$(5,3,2)$ & 20 & 10 & No \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All four produce the same coalition structure and the same
+Shapley--Shubik ordering. We report (3,2,1) because it is the
+smallest triple with distinguishable custodian / analyst weights;
+readers preferring a smaller triple can use (2,1,1) at the cost
+of collapsing that distinction in the on-chain log.
+
+Triples that do \emph{not} satisfy D1--D4 are inadmissible under
+the design questions -- excluded not by taste but by the
+governance requirements themselves. Three worked negatives:
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item $(3,1,1)$, $W=11$, $q=6$: D1 passes ($2s=6$), D2 passes
+  ($s=3<6$), D4b passes ($c+a=2<6$). But the only minimal
+  winning coalitions are $\{S_i, S_j\}$ of weight 6 -- the
+  coalition $\{S_1,C_1,A_1\}$ has weight 5 and does not win.
+  The custodian is never pivotal, so D4a fails.
+\item $(1,1,1)$, $W=5$, $q=3$: D1 fails immediately because
+  $2s = 2 < 3$. Two stewards alone cannot pass a routine
+  operation, contradicting the majority-of-peers requirement.
+\item $(2,2,1)$, $W=9$, $q=5$: D1 fails because $2s = 4 < 5$.
+  Raising the custodian weight above 1 forces the quorum ceiling
+  up and breaks the two-stewards-pass property.
+\end{itemize}
 
 \begin{proposition}[Safety: no double ratification]
 \label{prop:safety}
@@ -723,6 +889,7 @@ falsifies this predicate.
 \end{proof}
 
 \subsection{Shapley--Shubik Verification}
+\label{sec:wqg-shapley}
 
 To cross-check that the induced power distribution matches the
 intended hierarchy, we compute the Shapley--Shubik power
