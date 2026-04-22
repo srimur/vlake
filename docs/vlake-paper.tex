@@ -105,10 +105,11 @@ we verify via Shapley--Shubik analysis;
 delegation and revocation (a practical subset of W3C SSI/VC, not a
 full implementation);
 and (iv)~a federated source registry spanning ten heterogeneous
-systems. On top of these, a hybrid column-level encryption scheme
-combines AES-SIV for near-unique identifiers with Fernet plus HMAC
-blind indexes over \emph{deliberately coarsened} values for
-clinical attributes.
+systems. Confidentiality is enforced by grant-gated predicate
+injection plus network isolation of the warm stores; the
+prototype deliberately omits application-layer at-rest encryption
+and defers it to the storage tier (MinIO SSE-S3, Postgres TDE),
+which is the simpler and more auditable composition.
 
 We use a multi-site clinical trial as the driving case study
 because it exercises all four pillars concurrently, but the
@@ -119,19 +120,17 @@ sensitive-column registry and policy pack changing. We validate
 the design against a Hyperledger Besu (QBFT) network with a
 830-line Solidity contract deployed and a Flask backend running
 in \texttt{mode=on-chain}, exercised through a benchmark artefact
-(\texttt{scripts/bench\_full.py}) that hits the real contract. Measured mean end-to-end query overhead over raw DuckDB
-on five federated datasets is 10--21\% (approximately
-0.3--1.0\,ms); Merkle build scales linearly from 0.06\,ms at
-10 rows to 232\,ms at 50k rows; column-level encryption costs
-0.03--0.08\,ms per value; a real on-chain ingestion anchor
-round-trip (signed transaction plus block inclusion) takes a mean
-of 23\,ms. Against a centralised IAM baseline (plain RBAC, no
-chain, no Merkle), V-Lake adds roughly 1\,ms per query plus a
-one-time per-ingestion blockchain cost of tens of milliseconds.
-A test suite exercises seven modelled adversary classes; we do
-not claim formal security proofs or regulatory certification. We
-report the design, its rationale, its limitations, and the
-tradeoffs we consciously accept.
+(\texttt{scripts/bench\_full.py}) that hits the real contract.
+Measured mean end-to-end query overhead over raw DuckDB on five
+federated datasets is 10--21\% (approximately 0.3--1.0\,ms);
+Merkle build scales linearly from 0.06\,ms at 10 rows to 232\,ms
+at 50k rows; a real on-chain ingestion anchor round-trip (signed
+transaction plus block inclusion) takes a mean of 23\,ms.
+Against a centralised IAM baseline (plain RBAC, no chain, no
+Merkle), V-Lake adds roughly 1\,ms per query plus a one-time
+per-ingestion blockchain cost of tens of milliseconds. A test
+suite exercises seven modelled adversary classes; we do not
+claim formal security proofs or regulatory certification.
 \end{abstract}
 
 % ============================================================
@@ -173,9 +172,9 @@ healthcare-specific.
 
 V-Lake is a principled composition of four mechanisms, not a new
 cryptographic primitive. Each building block (Merkle trees,
-weighted voting games, decentralised identifiers, searchable
-encryption) is well-established. What is \emph{new}, to our
-knowledge, is their specific integration at the lakehouse layer:
+weighted voting games, decentralised identifiers, federated query)
+is well-established. What is \emph{new}, to our knowledge, is
+their specific integration at the lakehouse layer:
 
 \begin{enumerate}[leftmargin=*,topsep=3pt,itemsep=2pt]
 \item \textbf{Domain-Separated Merkle Forest (C1).}
@@ -204,10 +203,10 @@ knowledge, is their specific integration at the lakehouse layer:
 \end{enumerate}
 
 \noindent
-On top of these, a hybrid column-level encryption scheme applies
-deterministic encryption for near-unique identifiers, randomised
-encryption for clinical values, and HMAC blind indexes over
-deliberately coarsened buckets when filterability is required.
+Confidentiality at rest is delegated to the storage tier
+(MinIO server-side encryption, Postgres TDE), not implemented at
+the application layer. We discuss the HIPAA~\S164.312 rationale
+for this split in \S\ref{sec:access}.
 
 The specific technical contributions are:
 (a)~a \emph{constraint-driven} derivation of role weights rather
@@ -216,8 +215,8 @@ Shapley--Shubik power-index check;
 (b)~a cross-dataset Merkle forest whose root is tied, via a
 hash-linked attestation chain, to the \emph{injected} SQL of each
 query (not merely to ingested rows); and
-(c)~a per-column encryption mode assignment driven by column
-cardinality rather than applied uniformly.
+(c)~a file-hash anchor that lifts document-storage integrity into
+the on-chain Merkle root without a separate contract call.
 
 We deliberately do not claim: formal security proofs, regulatory
 certification, resistance to adversaries outside the stated threat
@@ -230,10 +229,11 @@ Section~\ref{sec:prior} surveys prior art.
 Section~\ref{sec:model} defines the system and threat models and
 provides a threat-mechanism matrix (Table~\ref{tab:threat-matrix}).
 Section~\ref{sec:arch} presents the architecture.
-Sections~\ref{sec:merkle}--\ref{sec:colcrypto} detail each
-component. Section~\ref{sec:access} covers access-control
-mechanics. Section~\ref{sec:eval} reports evaluation, methodology,
-and threats to validity.
+Sections~\ref{sec:merkle}--\ref{sec:federation} detail each
+contribution. Section~\ref{sec:access} covers access-control
+and the confidentiality-at-rest split.
+Section~\ref{sec:eval} reports evaluation, methodology, and
+threats to validity.
 Section~\ref{sec:applicability} sketches how the architecture
 applies beyond healthcare---to trade reporting, ESG disclosure,
 and cross-institution research---and what would change per domain.
@@ -281,14 +281,17 @@ and an ECDSA-signed consent chain but does not implement the full
 Verifiable Credentials data model or DIDComm messaging; we are
 explicit about this scoping in \S\ref{sec:ssi}.
 
-\paragraph{Searchable encryption.}
-CryptDB~\cite{popa2011cryptdb} introduced onion encryption with
-deterministic and order-preserving layers for SQL. Subsequent work
-showed that order-preserving encryption leaks enough information to
-recover plaintexts on real medical data~\cite{naveed2015inference}.
-V-Lake avoids OPE entirely, using deterministic encryption only for
-near-unique identifiers and HMAC blind indexes with deliberate
-coarsening for clinical values.
+\paragraph{At-rest confidentiality in regulated lakehouses.}
+CryptDB~\cite{popa2011cryptdb} explored SQL-over-ciphertext with
+onion encryption; follow-up analysis showed that
+order-preserving layers leak enough information to recover
+plaintexts on real medical data~\cite{naveed2015inference}. The
+pragmatic position taken by most production lakehouses (including
+V-Lake) is to keep rows in the clear at the query engine and rely
+on storage-tier encryption (server-side S3/MinIO encryption,
+Postgres TDE) plus strict access boundaries. This keeps the
+filter/join surface clean and moves key custody into an HSM/KMS,
+where it belongs.
 
 
 % ============================================================
@@ -324,8 +327,9 @@ organisation holds a majority.
   against on-chain roots.
 \item The query engine (DuckDB, in-memory) does not persist to
   disk, but we do not assume protection against OS-level memory
-  attacks (swap, core dumps). Column-level encryption provides
-  partial mitigation.
+  attacks (swap, core dumps). Host hardening and storage-tier
+  encryption (\S\ref{sec:access}) are the recommended mitigations
+  at deployment time.
 \end{itemize}
 
 \subsection{Threat Model}
@@ -372,9 +376,10 @@ T5 & SQL injection in row filter
    & Parameter escaping
    & Test-validated; \emph{see caveat} \\
 T6 & Stolen backup / rogue DBA (at rest)
-   & Column-level encryption (\S\ref{sec:colcrypto})
-   & Envelope key hierarchy
-   & Ciphertext in DuckDB verified \\
+   & Storage-tier encryption + network isolation
+     (\S\ref{sec:access})
+   & File-hash anchor (\S\ref{sec:dochash})
+   & Detection via root mismatch \\
 T7 & Expired or revoked grant reuse
    & Temporal check + grant cache invalidation
    & Redis-backed shared cache
@@ -389,10 +394,12 @@ deny-list, which is known to be weaker than a SQL-parser-based
 allow-list and may miss novel attack vectors. We treat this as a
 known limitation (\S\ref{sec:limitations}), not a solved problem.
 
-\emph{Caveat on T6.} The column-encryption scheme has documented
-frequency-leakage tradeoffs on blind-indexed columns
-(\S\ref{sec:colcrypto}). ``Encrypted at rest'' is not the same as
-``information-theoretically secure.''
+\emph{Caveat on T6.} V-Lake's prototype relies on storage-tier
+encryption (MinIO SSE-S3 / SSE-KMS, Postgres TDE) rather than
+application-layer encryption; this composition keeps key custody
+in an HSM/KMS but means the DuckDB query engine sees plaintext
+rows. Detection of tampering remains covered by the on-chain
+Merkle root and the file-hash anchor of \S\ref{sec:dochash}.
 
 Adversaries \emph{outside} these seven classes---for example,
 side-channel attacks on the host OS, a dishonest majority of
@@ -415,17 +422,12 @@ DuckDB's in-memory columnar engine or accessed via push-down
 (Table~\ref{tab:sources}). The pipeline then proceeds as follows:
 
 \begin{enumerate}[leftmargin=*,topsep=3pt,itemsep=2pt]
-\item \textbf{Column encryption.}
-  PHI columns are identified by a default registry (overridable per
-  dataset) and encrypted in place: deterministic encryption for
-  identifiers, randomised encryption for clinical values, with
-  blind-index side columns for coarsened equality filters
-  (\S\ref{sec:colcrypto}).
-
 \item \textbf{Merkle commitment.}
-  A domain-separated Merkle tree is built over the
-  \emph{post-encryption} rows, producing a root $\rho$ that commits
-  to the ciphertext state (\S\ref{sec:merkle}).
+  A domain-separated Merkle tree is built over the ingested rows,
+  producing a root $\rho$ that commits to the dataset's current
+  state (\S\ref{sec:merkle}). Document rows carry a
+  \texttt{file\_hash} column so the binary's identity is also
+  committed (\S\ref{sec:dochash}).
 
 \item \textbf{On-chain anchoring.}
   $\rho$ is recorded on a Hyperledger Besu smart contract (QBFT,
@@ -439,11 +441,9 @@ DuckDB's in-memory columnar engine or accessed via push-down
 
 \item \textbf{Query processing.}
   Incoming queries pass through predicate injection (column and row
-  restriction per the caller's grant), PHI predicate rewriting
-  (translating plaintext literals to ciphertext or blind-index
-  values), compliance checking (HIPAA, GDPR, DPDPA rules), and
-  Merkle-proof generation. Results are decrypted for authorised
-  callers only.
+  restriction per the caller's grant), compliance checking (HIPAA,
+  GDPR, DPDPA rules), and Merkle-proof generation; authorised
+  results are then returned (\S\ref{sec:access}).
 \end{enumerate}
 
 \begin{figure}[t]
@@ -455,11 +455,6 @@ DuckDB's in-memory columnar engine or accessed via push-down
  +---------------+------------------+
                  |
            DuckDB (in-memory)
-                 |
-        +--------+---------+
-        | Column Encrypt.  |
-        | det/rand/bidx    |
-        +--------+---------+
                  |
         +--------+---------+
         | Merkle Forest C1 |
@@ -480,7 +475,7 @@ DuckDB's in-memory columnar engine or accessed via push-down
                  |
           Query Pipeline
        predicate injection
-       PHI rewrite + decrypt
+       compliance + attestation
        Merkle proof bundle
                  |
               Caller
@@ -560,38 +555,42 @@ distinguishes V-Lake's integrity layer from a plain Merkle log: the
 SQL that produced each answer---not only the stored rows---is part
 of the tamper-evident record.
 
-\subsection{Document Ciphertext Anchoring}
+\subsection{Document Hash Anchoring}
+\label{sec:dochash}
 
 The per-dataset Merkle root $\rho$ commits to the rows of a
 dataset's \emph{table} in the query engine, including extracted
 text and metadata for document uploads. It does \emph{not} by
-itself commit to the raw ciphertext object stored in the
-object-store backend (e.g., a MinIO bucket, S3, or IPFS). A rogue
-storage admin who swaps an object with different ciphertext of the
-same length leaves the Merkle root unchanged.
+itself commit to the raw object stored in the object-store backend
+(e.g., a MinIO bucket, S3, or IPFS). A rogue storage admin who
+swaps an object with different bytes of the same length leaves the
+Merkle root unchanged.
 
 We close this gap without a separate on-chain record and without
 changing the integrity-proof protocol: when a document $d$ is
 ingested, we compute
-$\kappa_d = \textsc{Sha256}(\text{ciphertext}(d))$
+$\kappa_d = \textsc{Sha256}(d)$
 and store $\kappa_d$ as an additional column
-(\texttt{ciphertext\_hash}) in the document row. Because $\kappa_d$
+(\texttt{file\_hash}) in the document row. Because $\kappa_d$
 is part of the row, it is part of the leaf hash
 $H_{\text{leaf}}(r, i)$ (Eq.~1), and therefore part of the
 anchored root $\rho$. At download time the server refetches the
-ciphertext, recomputes $\kappa'_d$, and refuses to decrypt when
+object, recomputes $\kappa'_d$, and refuses to serve when
 $\kappa'_d \neq \kappa_d$, logging the mismatch as a
-\texttt{CIPHERTEXT\_TAMPER\_DETECTED} audit event. The expected
+\texttt{DOCUMENT\_TAMPER\_DETECTED} audit event. The expected
 $\kappa_d$ ultimately traces to the on-chain root, so an attacker
-who tampers with both the storage object and the in-memory
-metadata is detected on any subsequent Merkle verification.
+who tampers with the storage object is detected before any byte
+reaches the caller.
 
 The property this gives us is that object-store durability and
 object-store integrity become \emph{separable} concerns: the
 storage tier can be any addressable backend (MinIO, S3,
 erasure-coded cluster, IPFS pins) without affecting the integrity
 guarantee, because integrity is rooted in the chain, not the
-store.
+store. Confidentiality is layered on top by whatever the storage
+tier offers (MinIO SSE-S3, Postgres TDE, or KMS-issued client-side
+encryption at the upload path); the anchoring argument is
+independent of that choice.
 
 
 % ============================================================
@@ -609,10 +608,105 @@ confusion. Internal identifiers in our implementation retain the
 historical \texttt{WQC} prefix for backwards compatibility with
 the deployed ABI.
 
+\subsection{Policy Rationale for the Requirements}
+\label{sec:wqg-policy}
+
+Before we state the six requirements formally, we justify each one
+on policy grounds. The weights $(3,2,1)$ are derived as a
+\emph{consequence} of these policy choices; if the choices change
+(different committee size, different liability model, different
+regulatory regime), the resulting weights change too. What follows
+is the claim that the policy choices themselves are defensible,
+not arbitrary.
+
+\paragraph{R1 (two stewards alone pass a standard quorum): why.}
+This is the \emph{simple-majority-of-peers} principle from
+consortium-governance practice. In a committee of $n$ equal-standing
+principals, the routine-operations threshold is $\lceil n/2 \rceil$
+out of $n$. For the reference committee of 3 stewards that is 2.
+The alternative -- requiring all stewards for every routine
+operation -- collapses into a single-point veto problem in which
+the absence or disagreement of any one steward paralyses the
+system, which historically produces shadow out-of-band processes
+(``we'll just do it by email''). V-Lake reserves steward unanimity
+for the \emph{critical} class (\texttt{all\_stew=True},
+Table~\ref{tab:quorum}), which is where it belongs. R1 therefore
+governs the floor for routine governance, not the ceiling.
+
+Note that R1 is a claim about the reference committee of 3
+stewards. For a larger committee (5, 7, $\ldots$ stewards) the
+same simple-majority-of-peers principle yields a higher threshold,
+and the weight triple is rederived accordingly. We treat the
+reference committee as the minimal interesting case; scaling is
+discussed in \S\ref{sec:stages}.
+
+\paragraph{R2 (one steward alone cannot pass): why.}
+This is the defining property of a multi-principal governance
+scheme. If any single steward can ratify a routine operation
+alone, they are a dictator, and every other steward's membership
+is ceremonial. The reason V-Lake has multiple stewards at all is
+that no single principal should unilaterally affect shared data;
+R2 is that commitment translated into the math. Without R2 the
+weighted-voting layer is theatre.
+
+\paragraph{R3 (a custodian is pivotal in some winning coalition):
+why.}
+A role whose vote never tips any winning coalition has no actual
+influence. If the math is such that custodian votes never matter,
+the operational staff who run the system have been given a
+ceremonial badge but no actual power, and they become rubber
+stamps. R3 is the minimal guarantee that custodians' votes are
+load-bearing somewhere -- specifically in the marginal coalitions
+where a steward plus a custodian + analyst just crosses quorum.
+Without R3, the governance layer would claim custodian
+participation but deliver none.
+
+\paragraph{R4 (non-stewards alone cannot pass): why.}
+Classic separation of powers. The people who \emph{operate} the
+system (custodians) and \emph{consume} data from it (analysts)
+should not be the people who \emph{change the rules} of the system.
+Regulators view combined operate-and-rule-change authority as a
+control-environment red flag (e.g.\ COSO, SOC\,2 CC1.3). R4 says:
+to change governance state you need at least one executive-level
+principal (steward) on board.
+
+\paragraph{R5 (strict ordering $0 < a < c < s$): why.}
+Weights should track \emph{liability}, not head-count. Stewards
+face the maximum regulatory exposure (e.g.\ GDPR administrative
+fines up to 4\% of global revenue, SOX / MiFID\,II institutional
+penalties). Custodians face operational and contractual liability
+(DPA clauses, AUPs, audit findings). Analysts are access-scope-
+bounded and bear the least liability, though they too carry
+individual accountability for their queries. Weights that reverse
+this ordering would mean the roles with the least skin in the
+game dominate the vote -- which every governance framework we
+know of warns against.
+
+\paragraph{R6 (integer weights): why.}
+Two reasons, one practical and one readability. Practical: Solidity
+does not have native rationals, and implementing a fixed-point
+weight system inflates gas and invites rounding bugs. Readability:
+``weight 3'' is a discrete number a steward can recognise in an
+audit trail; ``weight 3.14'' or ``weight 1/$\sqrt{2}$'' immediately
+raises the question of where the fraction came from. Integers keep
+the on-chain state self-documenting.
+
+\paragraph{What the reader should take from this.}
+None of R1--R6 is a mathematical theorem. They are governance-
+policy choices we defend by appeal to consortium practice,
+separation of duties, and liability tracking. Given those choices,
+Proposition~\ref{prop:unique} then proves that $(3,2,1)$ is the
+unique minimal integer solution. A reviewer who disagrees with a
+policy choice can restate R1--R6 and rederive the triple; the
+contribution of the paper is the framework in which that rederivation
+is principled and explicit, not hand-waved.
+
+
 \subsection{Weight Derivation}
 
 V-Lake assigns integer weights: Steward~$s{=}3$, Custodian~$c{=}2$,
-Analyst~$a{=}1$. We state six requirements and prove that
+Analyst~$a{=}1$. We state six requirements (whose policy
+rationales are given in \S\ref{sec:wqg-policy}) and prove that
 $(3,2,1)$ is the unique minimal integer solution.
 
 \begin{enumerate}[label=\textbf{R\arabic*},leftmargin=2em,
@@ -851,7 +945,7 @@ Kafka                 & \texttt{kafka-python} consumer  & materialise \\
 MongoDB               & \texttt{pymongo} export         & materialise \\
 \midrule
 Documents (PDF/DOCX/IMG)
-  & Text extract + envelope enc.
+  & Text extract + raw blob to MinIO
   & materialise \\
 \bottomrule
 \end{tabular}
@@ -860,134 +954,33 @@ Documents (PDF/DOCX/IMG)
 \smallskip
 \noindent
 \emph{* Push-down caveat.} DuckDB's scan extensions push simple
-filter and projection predicates but materialise the remainder;
-column-level encryption therefore runs on the materialised
-partition, not at the source. Sources labelled ``push-down'' are
-scalable beyond memory for filtered queries but degrade to
-``materialise'' for unfiltered scans.
+filter and projection predicates but materialise the remainder.
+Sources labelled ``push-down'' are scalable beyond memory for
+filtered queries but degrade to ``materialise'' for unfiltered
+scans.
 
 After materialisation (or push-down evaluation), every source goes
-through the same pipeline: column encryption, Merkle tree
-construction, and on-chain anchoring. Cross-source SQL joins are
-supported because all sources resolve to tables in the same DuckDB
-instance.
+through the same pipeline: Merkle tree construction, on-chain
+anchoring, and grant-gated query rewriting. Cross-source SQL joins
+are supported because all sources resolve to tables in the same
+DuckDB instance.
 
 Documents follow an additional path: text is extracted (pypdf for
-PDF, XML parsing for DOCX), the raw binary is encrypted with the
-dataset's envelope key (Fernet: AES-128-CBC + HMAC-SHA256), and
-the ciphertext is persisted to a MinIO bucket. Plaintext bytes
-never survive beyond the upload handler.
+PDF, pytesseract/pdf2image OCR fallback for scanned PDFs and
+images, XML parsing for DOCX), the raw binary is written to a
+MinIO bucket, and the row carries a \texttt{file\_hash} column
+whose SHA256 is anchored on-chain through the Merkle root
+(\S\ref{sec:dochash}).
 
 The key design decision is \emph{materialisation by default, with
 push-down where the source supports it}: a uniform point at which
-encryption, Merkle hashing, and access control can be applied
-consistently. The tradeoff is memory-bounded dataset size for
-materialised sources; we discuss this in \S\ref{sec:limitations}.
+Merkle hashing and access control can be applied consistently.
+The tradeoff is memory-bounded dataset size for materialised
+sources; we discuss this in \S\ref{sec:limitations}.
 
 
 % ============================================================
-\section{Column-Level PHI Encryption}
-\label{sec:colcrypto}
-
-\subsection{Motivation}
-
-HIPAA's Breach Safe Harbor provision applies only to encrypted
-PHI. V-Lake's document layer already encrypts file uploads at rest,
-but the structured-data path (DuckDB tables) previously stored
-rows in plaintext. We address this gap with a hybrid scheme that
-preserves SQL filterability where possible. We note explicitly
-that encryption at rest is a \emph{necessary but not sufficient}
-condition for Safe Harbor eligibility; regulatory determination
-requires independent audit (\S\ref{sec:limitations}).
-
-\subsection{Key Hierarchy}
-
-A master KEK wraps per-dataset DEKs. Three subkeys are derived per
-DEK via HKDF-like expansion:
-%
-\begin{align}
-k_{\text{siv}}    &= \textsc{Hkdf}\bigl(\text{DEK},\;
-  \texttt{"vlake.colcrypt.siv.v1"},\; 64\bigr) \\
-k_{\text{fernet}} &= \textsc{Hkdf}\bigl(\text{DEK},\;
-  \texttt{"vlake.colcrypt.fernet.v1"},\; 32\bigr) \\
-k_{\text{bidx}}   &= \textsc{Hkdf}\bigl(\text{DEK},\;
-  \texttt{"vlake.colcrypt.bidx.v1"},\; 32\bigr)
-\end{align}
-
-\subsection{Three Encryption Modes}
-
-\textbf{Deterministic (det).}
-AES-SIV~\cite{rogaway2006siv} with a 512-bit key. Identical
-plaintexts always produce identical ciphertexts, enabling equality
-filters and joins. Applied to \emph{high-cardinality identifiers}
-(MRN, SSN, email, patient name) where frequency leakage is minimal.
-
-\textbf{Randomised (rand).}
-Fernet (AES-128-CBC + HMAC-SHA256) with a fresh IV per call.
-Applied to \emph{clinical values} (diagnosis, DOB, ZIP, notes).
-
-\textbf{Blind index (bidx).}
-Truncated HMAC-SHA256 over a \emph{coarsened} value, stored in a
-side column (\texttt{\_bidx\_\textit{col}}). Enables equality
-filters with bounded, documented frequency leakage. Three
-coarseners are provided: \texttt{year} (DOB $\to$ year),
-\texttt{zip3} (first 3 ZIP chars), \texttt{icd3} (first 3
-ICD-10 chars, e.g., E11.9 $\to$ E11).
-
-A column that is \texttt{rand}-encrypted \emph{and} has a blind
-index gets random ciphertext on the stored value while the side
-column enables coarse equality filters.
-Table~\ref{tab:colmodes} summarises the assignment.
-
-\begin{table}[t]
-\centering
-\footnotesize
-\caption{Column encryption mode assignment by column type.}
-\label{tab:colmodes}
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}p{2.1cm} c c p{2.5cm}@{}}
-\toprule
-\textbf{Column Type} & \textbf{Mode} & \textbf{Blind Idx}
-  & \textbf{Rationale} \\
-\midrule
-MRN, SSN, email, name & det & -- & Near-unique; flat freq. \\
-DOB, birth date       & rand & year & Quasi-identifier \\
-ZIP, postal code      & rand & zip3 & Quasi-identifier \\
-Diagnosis, ICD code   & rand & icd3 & Disease-family bucket \\
-Notes, free text      & rand & -- & No filtering needed \\
-Non-PHI columns       & --   & -- & Plaintext \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Query Rewriting}
-
-Equality predicates on PHI columns are rewritten before reaching
-DuckDB. \texttt{det} columns: the literal is replaced with its
-deterministic ciphertext. \texttt{rand}+\texttt{bidx} columns: the
-predicate targets the blind-index side column with the HMAC of the
-coarsened value. \texttt{rand}-only columns: the predicate becomes
-\texttt{FALSE} (we prefer an explicit zero-row result to a silent
-match of every row). Range queries, \texttt{LIKE}, and function
-calls on encrypted columns are not rewritten.
-
-\subsection{Frequency-Leakage Budget}
-
-We are explicit about what this scheme leaks.
-Deterministic encryption on near-unique columns produces a flat
-frequency distribution. Blind indexes produce a bucketed
-distribution; an attacker can correlate bucket frequencies with
-published prevalence data (the classic \cite{naveed2015inference}
-failure mode), which is why the coarsening is chosen per column
-(family-level for ICD) rather than left at the raw value.
-\texttt{rand}-only columns leak no frequency information.
-Blind-index keys are per-dataset, so compromising one dataset does
-not break frequency analysis across the lake. This is a
-\emph{documented tradeoff}, not a solved problem.
-
-
-% ============================================================
-\section{Access Control and Compliance}
+\section{Access Control, Compliance, and the Confidentiality Split}
 \label{sec:access}
 
 \subsection{Non-Truman Predicate Injection}
@@ -1017,17 +1010,17 @@ explicitly in Table~\ref{tab:threat-matrix} (T5) and
 \subsection{Compliance Engine}
 
 Policy rules are grouped into \emph{policy packs} that define the
-set of sensitive columns and the rules to apply. The current
-prototype ships healthcare-oriented packs (HIPAA, GDPR, India
-DPDPA) but the pack format is a plain declarative registry;
-finance (SOX, MiFID~II, PCI-DSS), disclosure (EU CSRD), and
-payments (PCI-DSS) packs are straightforward additions that do not
-change the engine. The engine checks four properties per query:
-column exposure (informational), temporal validity, audit logging,
-and minimum-necessary (which blocks \texttt{SELECT~*} on datasets
-with sensitive columns). Each policy emits a chained attestation
-whose hash feeds the next policy's input; the overall chain is
-anchored on-chain. The word ``compliance'' in this section refers
+set of sensitive columns and the rules to apply. The prototype
+ships healthcare-oriented packs (HIPAA, GDPR, India DPDPA); the
+pack format is a plain declarative registry, so finance
+(SOX, MiFID~II, PCI-DSS) and disclosure (EU CSRD) packs are
+additions rather than engine changes. The engine checks four
+properties per query: column exposure (informational), temporal
+validity, audit logging, and minimum-necessary (which blocks
+\texttt{SELECT~*} on datasets with sensitive columns unless the
+grant narrows by row or by column). Each policy emits a chained
+attestation whose hash feeds the next policy's input; the overall
+chain is anchored on-chain. The word ``compliance'' here refers
 to rule checks matching the pack's patterns, not to regulatory
 certification.
 
@@ -1039,6 +1032,40 @@ optional column restriction, optional row filter, and expiration.
 A TTL-based grant cache (30\,s, Redis-backed in multi-instance
 deployments) avoids repeated policy lookups; revocation invalidates
 the cache immediately.
+
+\subsection{Confidentiality at rest: why we delegate}
+\label{sec:rest-split}
+
+HIPAA~\S164.312(a)(2)(iv) classifies encryption at rest as
+``addressable,'' meaning a covered entity may substitute an
+equivalent safeguard if it is documented. V-Lake's substitute is
+the combination of: per-grant column and row scoping
+(\S\ref{sec:access}); chained on-chain attestations
+(\S\ref{sec:merkle}); Merkle integrity with re-hash-on-download
+for documents (\S\ref{sec:dochash}); ECDSA-signed consent records
+(\S\ref{sec:ssi}); TLS at the perimeter and a private network
+between backend and warm stores (\S\ref{sec:stages}); and
+minimum-necessary enforcement in the compliance engine.
+
+The remaining gap---a database administrator with direct Postgres
+or MinIO credentials who bypasses the backend---is closed by two
+HIPAA~\S164.308 administrative controls: network policy (warm
+stores reachable only from the backend container) and service-
+account separation (only the backend's service identity may
+\texttt{SELECT}).
+
+When deployments require a \emph{cryptographic} safeguard in
+addition, the recommendation is to enable it at the storage
+tier---MinIO server-side encryption (SSE-S3 or SSE-KMS), Postgres
+Transparent Data Encryption---rather than reintroduce an
+application-layer scheme on top of V-Lake. Storage-tier
+encryption keeps the key custody in an HSM/KMS and leaves the
+DuckDB query surface clean, which is what the classic results on
+property-preserving encryption schemes argue
+for~\cite{naveed2015inference}. The file-hash anchor of
+\S\ref{sec:dochash} is independent of whether the storage layer
+encrypts the bytes: the anchor commits to whatever is stored,
+plaintext or ciphertext alike.
 
 
 % ============================================================
@@ -1056,10 +1083,10 @@ scrutiny.
 \S\S\ref{sec:merkle}--\ref{sec:access}: domain-separated Merkle
 forest with forest root and per-query attestation chain, weighted
 quorum governance, DID-style consent chain, federated source
-registry, hybrid column encryption, ciphertext-hash anchoring.
-These are stated generally; they do not depend on any specific
-deployment topology and do not bake in a specific object store,
-key-management system, or blockchain validator set.
+registry, and the document file-hash anchor. These are stated
+generally; they do not depend on any specific deployment
+topology and do not bake in a specific object store or
+blockchain validator set.
 
 \emph{The prototype} is the specific instantiation we built to
 measure the architecture: Flask backend + DuckDB query engine +
@@ -1076,14 +1103,14 @@ assumptions that a production deployment would not make:
 \item The object store is a single-node MinIO. The architecture
   is store-agnostic; the prototype is not fault-tolerant against
   volume loss.
-\item The master key-encryption key lives in a file on disk. The
-  architecture requires an HSM- or KMS-backed KEK; the prototype
-  uses a local file so the demo works without external secret
-  management.
+\item The prototype does not enable storage-tier encryption
+  (MinIO SSE-S3, Postgres TDE); the demo runs without external
+  KMS infrastructure. A production deployment enables it at the
+  storage layer as described in \S\ref{sec:rest-split}.
 \item The query engine is in-memory DuckDB. The architecture
-  commits to an SQL engine that honours predicate injection and
-  blind-index rewrites; the prototype uses DuckDB because its
-  extension model makes the federated registry tractable.
+  commits to any SQL engine that honours predicate injection; the
+  prototype uses DuckDB because its extension model makes the
+  federated registry tractable.
 \item Data volumes are small (8--50 rows per table at demo time)
   because the prototype exists to demonstrate mechanism behaviour,
   not peak throughput.
@@ -1131,9 +1158,9 @@ generalisation to production-scale data warehouses.
 
 Table~\ref{tab:overhead} reports mean, p95, and relative overhead
 of the full V-Lake pipeline over raw DuckDB for each dataset. The
-V-Lake path includes predicate injection, compliance checking, PHI
-predicate rewriting, Merkle-proof generation, and attestation
-hashing; the baseline path is DuckDB alone.
+V-Lake path includes predicate injection, compliance checking,
+Merkle-proof generation, and attestation hashing; the baseline
+path is DuckDB alone.
 
 \begin{table}[t]
 \centering
@@ -1232,28 +1259,6 @@ the measured numbers match this shape. The 50k-row case builds in
 5\,000   & 19.15  & 22.82  \\
 10\,000  & 36.01  & 38.44  \\
 50\,000  & 231.87 & 279.69 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Column Encryption Kernel}
-
-The column-encryption primitives are fast enough that their cost is
-dominated by Python overhead; they are not a bottleneck in the
-query path (Table~\ref{tab:crypto-bench}).
-
-\begin{table}[t]
-\centering
-\small
-\caption{Column encryption kernel microbenchmark.}
-\label{tab:crypto-bench}
-\begin{tabular}{@{}lcc@{}}
-\toprule
-\textbf{Operation} & \textbf{Mean (ms)} & \textbf{P95 (ms)} \\
-\midrule
-Deterministic (AES-SIV) encrypt+decrypt & 0.03 & 0.05 \\
-Randomised (Fernet) encrypt+decrypt     & 0.08 & 0.12 \\
-Blind-index HMAC (icd3 coarsener)       & 0.00 & 0.01 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1364,14 +1369,14 @@ dominate those measurements.
 \section{Applicability Beyond Healthcare}
 \label{sec:applicability}
 
-The mechanisms in \S\S\ref{sec:merkle}--\ref{sec:colcrypto} do not
-depend on healthcare semantics. The four pillars---multi-party
-governance without unilateral authority, tamper-evident integrity,
-subject-initiated consent, and column-level encryption with
-bounded filterability---recur in several regulated domains. We
-sketch three below and list the concrete changes each would
-require, all of which are configuration changes rather than
-architectural changes.
+The mechanisms in \S\S\ref{sec:merkle}--\ref{sec:access} do not
+depend on healthcare semantics. The three core pillars---%
+multi-party governance without unilateral authority,
+tamper-evident integrity tied to an on-chain root, and
+subject-initiated consent---recur in several regulated domains.
+We sketch three below and list the concrete changes each would
+require; each is a configuration change rather than an
+architectural change.
 
 \paragraph{Financial trade reporting (MiFID~II, Dodd--Frank, SOX).}
 Multiple banks, clearinghouses, and regulators share order and
@@ -1379,59 +1384,49 @@ execution data for which no single party should hold unilateral
 audit authority. WQG maps to the existing committee structure
 (trading desks, risk office, compliance, external regulator); the
 \texttt{all\_stew} property supports the regulator-as-gating-signer
-pattern. Column encryption modes map directly: account IDs are
-near-unique (\texttt{det}), counterparty codes are low-cardinality
-(\texttt{rand}+\texttt{bidx}), notional amounts need
-\emph{bucketed} blind indexes (new coarsener: log-scale amount
-buckets). SOX~\S404 and MiFID~II~Art.~25 audit requirements are
+pattern. SOX~\S404 and MiFID~II~Art.~25 audit requirements are
 served by the per-query attestation chain. The main architectural
-gap is throughput: trade capture is write-heavy, so batch anchoring
-(one Merkle root per $N$ trades) is required to avoid making each
-trade a blockchain transaction.
+gap is throughput: trade capture is write-heavy, so batch
+anchoring (one Merkle root per $N$ trades) is required to avoid
+making each trade a blockchain transaction.
 
 \paragraph{ESG / sustainability disclosure (EU CSRD, SEC climate).}
 Issuers, auditors, investors, and regulators jointly rely on
 disclosure data that is increasingly scrutinised for greenwashing.
-V-Lake's tamper-evident integrity and per-query attestation address
-the core integrity concern; WQG matches the
+V-Lake's tamper-evident integrity and per-query attestation
+address the core integrity concern; WQG matches the
 issuer/auditor/regulator triangle (stewards = issuer + auditor +
 regulator; custodian = ESG data manager; analyst = investor
-analyst). Only the column registry changes: emissions scope
-codes, facility IDs, and supplier identifiers replace MRN/ICD
-fields, and the \texttt{icd3} family coarsener generalises to
-scope/category bucketing.
+analyst). Only the sensitive-column registry changes: emissions
+scope codes, facility IDs, and supplier identifiers replace
+MRN/ICD fields.
 
 \paragraph{Cross-institution scientific collaboration.}
 Multi-site consortia (e.g., genomics networks, particle-physics
 collaborations, climate-model intercomparisons) manage
 data-use-agreement-gated datasets that resemble clinical trials in
-governance shape but usually have looser column-level secrecy and
+governance shape but usually have looser secrecy requirements and
 much larger data volumes. WQG and the consent chain apply
-unchanged; column encryption is often unnecessary except for
-personally identifying fields. The per-query attestation chain has
-an additional benefit here: it makes query-level
-\emph{reproducibility} auditable, which is a recognised pain point
-in open science.
+unchanged. The per-query attestation chain has an additional
+benefit here: it makes query-level \emph{reproducibility}
+auditable, which is a recognised pain point in open science.
 
 \paragraph{Changes the model would need to target these domains.}
 The architecture is stable; what changes is (i)~the \emph{policy
-pack} and sensitive-column registry, (ii)~the set of blind-index
-coarseners (add numeric bucketing and date-quarter for finance;
-scope/category for ESG), (iii)~optional role aliases in the
-on-chain metadata so the UI displays domain-appropriate labels
-while the contract still operates on the
-Steward/Cus\-todian/Analyst/Sub\-ject abstraction, and (iv)~batch
+pack} and sensitive-column registry, (ii)~optional role aliases
+in the on-chain metadata so the UI displays domain-appropriate
+labels while the contract still operates on the
+Steward/Cus\-todian/Analyst/Sub\-ject abstraction, and (iii)~batch
 anchoring of Merkle roots for write-heavy ingestion. The weight
 derivation in Proposition~\ref{prop:unique}, the Shapley--Shubik
-verification, the Merkle construction, and the encryption kernel
-are unchanged.
+verification, and the Merkle construction are unchanged.
 
 Two things do \emph{not} generalise for free.
 First, \textbf{right-to-erasure} under CCPA and CSRD conflicts
-with append-only on-chain anchoring; a crypto-shredding protocol
-(per-subject DEK destruction) is needed to make deletion
-cryptographically effective without rewriting history. This is
-flagged in \S\ref{sec:limitations}.
+with append-only on-chain anchoring; because only hashes are
+anchored, deleting a row from the warm store and rotating the
+storage-tier key is sufficient for the legal erasure obligation,
+but a formal cryptographic argument is future work.
 Second, \textbf{sub-second-latency} use cases (IoT telemetry,
 automotive event streams) stress the QBFT block period and would
 need either off-chain batching with periodic anchoring or a
@@ -1447,20 +1442,16 @@ standard composition of known primitives, and what is not. We
 split the answer into three categories.
 
 \paragraph{Inherited, unchanged.}
-SHA-256 Merkle trees, ECDSA signatures, AES-SIV, HMAC-SHA256,
-QBFT consensus, the Shapley--Shubik power index, the Non-Truman
-access-control model, and the observation that order-preserving
-encryption leaks too much on medical data. None of these are
-contributions.
+SHA-256 Merkle trees, ECDSA signatures, QBFT consensus, the
+Shapley--Shubik power index, and the Non-Truman access-control
+model. None of these are contributions.
 
 \paragraph{Adapted, with small modifications.}
 The domain-separated Merkle hashing style is folklore from
 transparency logs; our contribution here is consistent application
 (including position binding and odd-leaf promotion) and the
 aggregation of per-dataset roots into a forest root with its own
-domain tag. The Fernet-plus-blind-index pattern exists in various
-SDKs; our contribution is the \emph{cardinality-driven} mode
-assignment and explicit coarsening budget.
+domain tag.
 
 \paragraph{New, to our knowledge, at the lakehouse layer.}
 (i)~A constraint-driven derivation of weighted-voting weights
@@ -1471,9 +1462,13 @@ RBAC/policy stacks use convention and do not publish either.
 \emph{post-injection} SQL to the Merkle root and anchors the
 chain on-chain; this makes query-level tamper detection possible,
 not just row-level.
-(iii)~The specific composition of a cross-dataset forest root,
-WQG governance, a DID-style consent chain, and hybrid column
-encryption behind a single query pipeline.
+(iii)~A document file-hash anchor that lifts object-store
+integrity into the same Merkle root without a second contract
+call (\S\ref{sec:dochash}).
+(iv)~The specific composition of a cross-dataset forest root,
+WQG governance, a DID-style consent chain, and a federated source
+registry behind a single query pipeline, with confidentiality at
+rest cleanly delegated to the storage tier.
 
 What is explicitly \emph{not} new and we do not claim otherwise:
 no new cryptographic primitive; no formal security proof; no
@@ -1488,29 +1483,26 @@ configuration described.
 
 \begin{enumerate}[leftmargin=*,topsep=3pt,itemsep=2pt]
 \item \textbf{In-memory materialisation.}
-  DuckDB runs in-memory, limiting materialised dataset size to RAM.
-  Push-down sources (Postgres, MySQL, Trino) scale beyond this but
-  degrade for unfiltered scans. Production deployments would
-  benefit from spill-to-disk with encrypted swap or a persistent
-  encrypted engine.
+  DuckDB runs in-memory, limiting materialised dataset size to
+  RAM. Push-down sources (Postgres, MySQL, Trino) scale beyond
+  this but degrade for unfiltered scans. A production deployment
+  would pair DuckDB with a spill-capable engine or front a
+  warehouse such as Trino at the federation point.
 
-\item \textbf{Blind-index frequency leakage.}
-  Coarsening reduces leaked information but does not eliminate it.
-  Blind indexes on low-cardinality columns still reveal bucketed
-  frequency distributions. Documented tradeoff, not a solved
-  problem.
-
-\item \textbf{Predicate rewriter scope.}
-  The current rewriter supports only simple equality predicates on
-  PHI columns. Range queries, \texttt{LIKE}, and functions on
-  encrypted columns are not rewritten. Range queries would require
-  order-revealing encryption, which we deliberately
-  avoid~\cite{naveed2015inference}.
+\item \textbf{No application-layer at-rest encryption.}
+  V-Lake deliberately omits it from the prototype for
+  explainability (\S\ref{sec:rest-split}). Deployments that
+  require a cryptographic safeguard enable it at the storage
+  tier (MinIO SSE-S3/SSE-KMS, Postgres TDE) where the key
+  management lives in an HSM/KMS. This is flagged in
+  Table~\ref{tab:threat-matrix}~(T6) and is load-bearing for any
+  deployment that relies on HIPAA Breach Safe Harbor or
+  equivalent encryption-based regulatory provisions.
 
 \item \textbf{Row-filter validation is deny-list based.}
   The deny-list is known weaker than a parser-based allow-list. A
-  production deployment should integrate a SQL parser. This is
-  flagged in Table~\ref{tab:threat-matrix} (T5).
+  production deployment should integrate a SQL parser. Flagged
+  in Table~\ref{tab:threat-matrix}~(T5).
 
 \item \textbf{DID/SSI interoperability.}
   The consent chain is not a full W3C VC/DIDComm implementation
@@ -1523,9 +1515,9 @@ configuration described.
   game-based analysis is future work.
 
 \item \textbf{No regulatory certification.}
-  Phrases such as ``HIPAA Safe Harbor'' and ``GDPR Art.~32'' refer
-  to design alignment, not to third-party certification. Real
-  deployment requires independent audit.
+  Phrases such as ``HIPAA \S164.312 alignment'' and ``GDPR
+  Art.~32'' refer to design alignment, not to third-party
+  certification. Real deployment requires independent audit.
 
 \item \textbf{Benchmark scope.}
   Numbers in \S\ref{sec:eval} reflect a single host, dev-mode
@@ -1535,44 +1527,44 @@ configuration described.
 \item \textbf{Right-to-erasure vs append-only anchors.}
   On-chain Merkle roots are immutable, but GDPR, CCPA, India
   DPDPA, and EU CSRD each grant data-subject deletion rights.
-  The prototype supports logical deletion and key rotation; a
-  robust \emph{crypto-shredding} protocol (per-subject DEK so
-  destroying the key erases data cryptographically while the
-  anchor remains) is planned future work and would be required
-  before deployment in any domain where subject-deletion is
-  enforceable.
+  Because only hashes are anchored, deleting a row from the warm
+  store and rotating the storage-tier key satisfies the
+  regulatory erasure obligation in practice; a formal
+  crypto-shredding protocol with per-subject keys is future work.
 
 \item \textbf{Write-heavy throughput.}
   Trade capture, IoT, and similar write-heavy workloads cannot
   anchor each record on-chain within a 2\,s QBFT block period.
-  The intended extension is batch anchoring: buffer $N$ ingestions
-  and anchor one aggregated Merkle root. The security argument
-  carries over (the aggregate root commits to all leaves), but
-  the latency between ingestion and anchor becomes a design
-  parameter.
+  The intended extension is batch anchoring: buffer $N$
+  ingestions and anchor one aggregated Merkle root. The security
+  argument carries over (the aggregate root commits to all
+  leaves), but the latency between ingestion and anchor becomes a
+  design parameter.
 \end{enumerate}
 
-\subsection{Staged Storage-Integrity Hardening}
+\subsection{Staged Production Hardening}
 \label{sec:stages}
 
 The prototype assumptions in \S\ref{sec:arch-vs-prototype} imply a
 production rollout path. Each stage below is orthogonal: a
 deployment can adopt them in the order that matches its risk
 profile. Stage A is already implemented in the prototype; Stages
-B--E are design commitments whose implementation is out of scope
+B--E are deployment changes whose implementation is out of scope
 for this paper.
 
 \begin{itemize}[leftmargin=*,topsep=3pt,itemsep=3pt]
 
-\item \textbf{Stage A. Ciphertext content-addressing (done).}
+\item \textbf{Stage A. File-hash anchoring (done).}
   The architecture is already store-agnostic because every
-  document row carries $\kappa_d = \textsc{Sha256}(\text{ciphertext}(d))$
-  and $\kappa_d$ is part of the Merkle leaf (\S\ref{sec:merkle}).
-  At download, the store is refetched, $\kappa'_d$ is recomputed,
-  and any mismatch with the on-chain-anchored $\kappa_d$ refuses
-  the decrypt and emits a \texttt{CIPHERTEXT\_TAMPER\_DETECTED}
-  audit event. This closes the \emph{silent object-swap} threat
-  without changing the integrity-proof protocol.
+  document row carries
+  $\kappa_d = \textsc{Sha256}(d)$
+  and $\kappa_d$ is part of the Merkle leaf
+  (\S\ref{sec:dochash}). At download, the store is refetched,
+  $\kappa'_d$ is recomputed, and any mismatch with the
+  on-chain-anchored $\kappa_d$ refuses the response and emits a
+  \texttt{DOCUMENT\_TAMPER\_DETECTED} audit event. This closes
+  the \emph{silent object-swap} threat without changing the
+  integrity-proof protocol.
 
 \item \textbf{Stage B. Replicated object store.}
   The prototype uses single-node MinIO. A production deployment
@@ -1582,44 +1574,37 @@ for this paper.
   only to guarantee \emph{availability}---integrity verification
   remains a property of the on-chain state.
 
-\item \textbf{Stage C. Decentralised object store (IPFS).}
-  Multi-organisation deployments where no single party should
-  hold the binaries benefit from a content-addressed, replicated
-  store such as IPFS with a per-organisation pin set or a
-  Filecoin-backed pinning service. The architectural interface
-  does not change: $\kappa_d$ is now both the on-chain-anchored
-  hash and the IPFS CID, collapsing two concepts into one. IPFS
-  does not substitute for encryption---ciphertext is still what is
-  published---and it introduces DHT-resolution latency that makes
-  it a better fit for long-term archival than interactive queries.
-  A hybrid deployment can keep MinIO for the hot path and IPFS
-  for cross-organisation replication and cold archive.
+\item \textbf{Stage C. Storage-tier encryption.}
+  Enable MinIO server-side encryption (SSE-S3 or SSE-KMS for
+  deployments that need per-object key visibility) and Postgres
+  TDE for the relational source. This places key management in
+  an HSM or KMS at the storage boundary, where it belongs, and
+  keeps the DuckDB query surface clean
+  (\S\ref{sec:rest-split}). This stage is load-bearing for any
+  deployment relying on HIPAA Breach Safe Harbor or equivalent
+  encryption-based provisions.
 
-\item \textbf{Stage D. HSM- or KMS-backed key management.}
-  The prototype stores the master KEK as a local file
-  (\texttt{backend/data/.master.key}) because the demo must work
-  without external secret infrastructure. Production requires an
-  HSM (FIPS 140-3 Level 3) or a managed KMS (HashiCorp Vault,
-  AWS KMS, GCP KMS) wrapping the KEK. Per-dataset DEKs remain
-  wrapped ciphertext in the existing \texttt{deks.json}; the only
-  change is that the wrap/unwrap call is delegated to the HSM/KMS.
-  This stage is load-bearing for any HIPAA Safe Harbor or
-  FIPS-aligned deployment.
+\item \textbf{Stage D. Decentralised object store (optional).}
+  Multi-organisation deployments where no single party should
+  hold the binaries can use a content-addressed store such as
+  IPFS with a per-organisation pin set. The architectural
+  interface does not change: $\kappa_d$ becomes both the
+  on-chain-anchored hash and the IPFS CID, collapsing two
+  concepts. A hybrid deployment can keep MinIO for the hot path
+  and IPFS for cross-organisation cold archival.
 
 \item \textbf{Stage E. Multi-validator Besu.}
   The prototype runs Besu in single-node dev-mode, which is
   sufficient to measure real transaction round-trip latency but
   is not a highly available ordering layer. Production QBFT
-  requires 4 validators to tolerate one Byzantine fault (or $3f+1$
-  for tolerance of $f$). This is a deployment-topology change
-  rather than an architectural change; the smart contract is
-  unchanged.
+  requires 4 validators to tolerate one Byzantine fault (or
+  $3f+1$ for tolerance of $f$). This is a deployment-topology
+  change; the smart contract is unchanged.
 
 \end{itemize}
 
-None of these stages alters the security argument, the weight
-derivation in Proposition~\ref{prop:unique}, or the frequency-leakage
-budget of the column-encryption scheme. They change what the
+None of these stages alters the security argument or the weight
+derivation in Proposition~\ref{prop:unique}. They change what the
 prototype's numbers generalise to.
 
 
